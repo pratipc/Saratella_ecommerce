@@ -1,0 +1,668 @@
+﻿<!--
+File: view.html
+Location: /app/templates/pr/
+Description: View for listing all Purchase Requisitions and seeing their details.
+-->
+{% extends 'layouts/app_layout.html' %}
+
+{% set status_colors = {
+    'Draft': 'bg-gray-100 text-gray-800',
+    'Pending': 'bg-yellow-100 text-yellow-800',
+    'Approved': 'bg-green-100 text-green-800',
+    'Rejected': 'bg-red-100 text-red-800',
+    'In RFQ': 'bg-purple-100 text-purple-800',
+    'PO Created': 'bg-blue-100 text-blue-800'
+} %}
+
+{% block title %}View Purchase Requests - Valproc Lite{% endblock %}
+
+{% block app_content %}
+<div class="flex-1 flex flex-col bg-white overflow-hidden" x-data="prView()" x-init="initScroll('{{ selected_pr.PR_ID if selected_pr else '' }}')">
+    <!-- Top Header -->
+    <div class="p-4 border-b border-gray-200 flex justify-between items-center flex-shrink-0 bg-white">
+        <h2 class="text-xl font-bold">Purchase Requests</h2>
+        <div class="flex items-center space-x-2">
+            {% if 'Requestor' in g.user.roles or 'Admin' in g.user.roles %}
+            <a href="{{ url_for('pr.create_pr') }}" class="px-3 py-1 text-sm font-semibold text-white bg-valproc-orange hover:bg-valproc-orange-dark rounded-md">Create New PR</a>
+            {% endif %}
+            {% if selected_pr and selected_pr.Status == 'Pending' and selected_pr.PendingWithUserIDs and g.user.id|string in selected_pr.PendingWithUserIDs.split(',') %}
+            <button @click="openModal('approve')" type="button" class="px-3 py-1 text-sm font-semibold text-white bg-green-600 rounded-md hover:bg-green-700">Approve</button>
+            <button @click="openModal('reject')" type="button" class="px-5 py-1 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700">Reject</button>
+            {% endif %}
+            {% if selected_pr and selected_pr.Status == 'Approved' and ('Admin' in g.user.roles or 'Buyer' in g.user.roles) %}
+            {% if config_state.Use_PR_RFQ_PO %}
+            <button @click="rfqModalOpen = true" type="button" class="px-3 py-1 text-sm font-semibold text-white bg-sky-500 rounded-md hover:bg-sky-600">Create RFQ</button>
+            {% endif %}
+            {% if config_state.Use_PR_PO %}
+            <button @click="showCreatePOModal = true" type="button" class="px-3 py-1 text-sm font-semibold text-white bg-green-600 rounded-md hover:bg-green-700">Create PO</button>
+            {% endif %}
+            {% endif %}
+
+            <!--<img src="https://placehold.co/40x40/E2E8F0/4A5568?text={{ g.user.name[0] | upper }}" alt="User Avatar" class="w-10 h-10 rounded-full ml-2">-->
+        </div>
+    </div>
+
+    <!-- Main Content Flex Container -->
+    <div class="flex-1 flex overflow-hidden">
+        <!-- 2nd Column: PR List -->
+        <div class="w-1/4 border-r border-gray-200 flex flex-col">
+            <div class="p-4 border-b border-gray-200 flex-shrink-0">
+                <div class="relative">
+                    <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    <input type="text" placeholder="Search by PR# or title..." class="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-md">
+                </div>
+            </div>
+            <div x-ref="listContainer"  class="flex-1 overflow-y-auto custom-scrollbar">
+                {% if all_prs %}
+                {% for pr in all_prs %}
+                <a href="{{ url_for('pr.view_prs', pr_id=pr.PR_ID) }}" id="list-item-pr-{{ pr.PR_ID }}" class="block p-4 border-b border-gray-200 hover:bg-gray-50 cursor-pointer
+                        {% if selected_pr and selected_pr.PR_ID == pr.PR_ID %}bg-blue-50 border-l-4 border-blue-500{% endif %}">
+                    <div class="flex justify-between items-center">
+                        <p class="text-sm font-bold text-gray-800">{{ pr.PR_Number }}</p>
+                        <span class="text-xs font-medium px-2.5 py-0.5 rounded-full {{ status_colors.get(pr.Status, 'bg-gray-100 text-gray-800') }}">{{ pr.Status }}</span>
+                    </div>
+                    <p class="text-sm text-gray-600 mt-1 truncate">{{ pr.Title }}</p>
+                    <div class="flex justify-between items-center text-xs text-gray-500 mt-2">
+                        <span>By: {{ pr.RequestorName }}</span>
+                        <span>{{ pr.CreatedDate.strftime('%d %b, %Y') if pr.CreatedDate else '' }}</span>
+                    </div>
+                </a>
+                {% endfor %}
+                {% else %}
+                <p class="p-4 text-center text-gray-500">No Purchase Requests found.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 3rd Column: PR Details -->
+        <div class="w-3/4 flex-1 flex flex-col bg-gray-50">
+            {% if selected_pr %}
+            <div class="p-4 border-b border-gray-200 flex justify-between items-center flex-shrink-0 bg-white">
+                <div>
+                    <h2 class="text-xl font-bold">
+                        {{ selected_pr.PR_Number }}
+                        <span class="text-sm font-medium ml-2 px-2.5 py-0.5 rounded-full {{ status_colors.get(selected_pr.Status, 'bg-gray-100 text-gray-800') }}">{{ selected_pr.Status }}</span>
+                    </h2>
+                    <p class="text-sm text-gray-500 truncate">Total Amount: <span class="font-semibold">₹{{ selected_pr.TotalAmount | inr_format }}</span></p>
+                    {% if selected_pr.Status == 'Pending' and selected_pr.PendingWith %}
+                    <p class="text-sm text-yellow-600">Pending with: {{ selected_pr.PendingWith }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Tab Navigation -->
+            <div class="px-6 border-b border-gray-200 bg-white">
+                <nav class="-mb-px flex space-x-6">
+                    <a @click.prevent="activeTab = 'details'" href="#" class="py-3 px-1 border-b-2 font-medium text-sm" :class="{ 'border-valproc-orange text-valproc-orange': activeTab === 'details', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'details' }">
+                        Details
+                    </a>
+                    <a @click.prevent="activeTab = 'attachments'" href="#" class="py-3 px-1 border-b-2 font-medium text-sm" :class="{ 'border-valproc-orange text-valproc-orange': activeTab === 'attachments', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'attachments' }">
+                        Attachments
+                    </a>
+                    <a @click.prevent="activeTab = 'history'" href="#" class="py-3 px-1 border-b-2 font-medium text-sm" :class="{ 'border-valproc-orange text-valproc-orange': activeTab === 'history', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'history' }">
+                        Approval History
+                    </a>
+                    <a @click.prevent="activeTab = 'documents'" href="#" class="py-3 px-1 border-b-2 font-medium text-sm" :class="{ 'border-valproc-orange text-valproc-orange': activeTab === 'documents', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': activeTab !== 'documents' }">
+                        RFQ & PO
+                    </a>
+                </nav>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
+
+                <!-- Details Tab -->
+                <div x-show="activeTab === 'details'" style="display: none;">
+
+                    <!-- ===== START: PR PROGRESS STEPPER ===== -->
+                    <div class="mt-6 bg-white p-6 rounded-lg border border-gray-200">
+                        <h3 class="font-semibold text-lg mb-8">PR Progress</h3>
+
+                        {#
+                        Map statuses to a step index.
+                        'Rejected' is set to 1, to replace the 'Approved' step.
+                        #}
+                        {% set status_map = {
+                        'Draft': -1,
+                        'Pending': 0,
+                        'Approved': 1,
+                        'In RFQ': 2,
+                        'PO Created': 3,
+                        'Rejected': 1
+                        } %}
+
+                        {% set current_status_index = status_map.get(selected_pr.Status, -1) %}
+
+                        {# Dynamically set the step names based on status #}
+                        {% if selected_pr.Status == 'Rejected' %}
+                        {% set steps = ['Submitted', 'Rejected', 'In RFQ', 'PO Created'] %}
+                        {% else %}
+                        {% set steps = ['Submitted', 'Approved', 'In RFQ', 'PO Created'] %}
+                        {% endif %}
+
+                        <div class="w-full max-w-4xl mx-auto px-4 sm:px-0">
+                            <div class="relative">
+
+                                <div class="absolute left-4 top-4 right-4 h-0.5 bg-gray-200"></div>
+
+                                {% if current_status_index > 0 and selected_pr.Status != 'Rejected' %}
+                                <div class="absolute left-4 top-4 h-0.5 bg-green-600"
+                                     style="width: calc( (100% - 2rem) * {{ current_status_index / (steps|length - 1) }} );">
+                                </div>
+                                {% endif %}
+
+                                <div class="flex justify-between items-start relative">
+                                    {% for step_name in steps %}
+                                    {% set i = loop.index0 %}
+
+                                    <div class="flex flex-col items-center text-center w-32">
+                                        <div class="w-8 h-8 rounded-full text-lg flex items-center justify-center relative
+                                             {# CASE 1: The step is 'Rejected' #}
+                                             {% if step_name=='Rejected' %}
+                                             bg-red-600 text-white ring-4 ring-red-200
+                                             {# CASE 2: Step is COMPLETED (and not rejected) #}
+                                             {% elif current_status_index>
+                                            i %}
+                                            bg-green-600 text-white
+
+                                            {# CASE 3: Step is ACTIVE (and not rejected) #}
+                                            {% elif current_status_index == i %}
+                                            bg-green-600 text-white ring-4 ring-green-200
+
+                                            {# CASE 4: Step is PENDING #}
+                                            {% else %}
+                                            bg-white border-2 border-gray-300 text-gray-500
+                                            {% endif %}
+                                            ">
+
+                                            {# --- Icon Logic --- #}
+
+                                            {# Show red cross for 'Rejected' step #}
+                                            {% if step_name == 'Rejected' %}
+                                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path></svg>
+
+                                            {# Show checkmark for COMPLETED steps #}
+                                            {% elif current_status_index > i %}
+                                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
+
+                                            {# Show number for ACTIVE or PENDING steps #}
+                                            {% else %}
+                                            {{ loop.index }}
+                                            {% endif %}
+                                        </div>
+
+                                        <p class="mt-2 text-sm font-semibold
+                                           {% if step_name=='Rejected' %}
+                                           text-red-600
+                                           {% elif current_status_index>= i %}
+                                            text-gray-800
+                                            {% else %}
+                                            text-gray-500
+                                            {% endif %}
+                                            ">{{ step_name }}
+                                        </p>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ===== END: PR PROGRESS STEPPER ===== -->
+                    <!-- General Details Card -->
+                    <div class="mt-6 bg-white p-6 rounded-lg border border-gray-200">
+                        <h3 class="font-semibold text-lg mb-4">General Information</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 text-sm">
+                            <div><p class="text-gray-500">Requestor</p><p class="font-medium text-gray-800">{{ selected_pr.RequestorName }}</p></div>
+                            <div><p class="text-gray-500">Created Date</p><p class="font-medium text-gray-800">{{ selected_pr.CreatedDate.strftime('%d %b, %Y %I:%M %p') }}</p></div>
+                            <div><p class="text-gray-500">Description</p><p class="font-medium text-gray-800">{{ selected_pr.Description or 'N/A' }}</p></div>
+                            <div><p class="text-gray-500">Expected By</p><p class="font-medium text-gray-800">{{ selected_pr.ExpectedByDate.strftime('%d %b, %Y') if selected_pr.ExpectedByDate else 'N/A' }}</p></div>
+                            <div class="col-span-2"><p class="text-gray-500">Justification</p><p class="font-medium text-gray-800">{{ selected_pr.Justification or 'N/A' }}</p></div>
+                            <div><p class="text-gray-500">Billing Address</p><p class="font-medium text-gray-800">{{ selected_pr.BillingAddress or 'N/A' }}</p></div>
+                            <div><p class="text-gray-500">Shipping Address</p><p class="font-medium text-gray-800">{{ selected_pr.ShippingAddress or 'N/A' }}</p></div>
+                        </div>
+                    </div>
+
+                    <!-- Items Card -->
+                    <div class="mt-6 bg-white rounded-lg border border-gray-200">
+                        <h3 class="font-semibold text-lg p-6 pb-0">Items</h3>
+                        <div class="border-t border-gray-200 mt-4">
+                            {% set total_taxable = namespace(value=0) %}
+                            {% set total_tax = namespace(value=0) %}
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-gray-50">
+                                    <tr class="divide-x divide-gray-200">
+                                        <th class="px-4 py-2 text-center font-medium text-gray-500 uppercase w-1/12">Sl. No.</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500 uppercase w-4/12">Item</th>
+                                        <th class="px-4 py-2 text-right font-medium text-gray-500 uppercase">Qty</th>
+                                        <th class="px-4 py-2 text-right font-medium text-gray-500 uppercase">Unit Price</th>
+                                        <th class="px-4 py-2 text-right font-medium text-gray-500 uppercase">HSN</th>
+                                        <th class="px-4 py-2 text-right font-medium text-gray-500 uppercase">GST %</th>
+                                        <th class="px-4 py-2 text-right font-medium text-gray-500 uppercase">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    {% for item in pr_items %}
+                                    {% set taxable = item.Quantity * item.UnitPrice %}
+                                    {% set tax = item.TotalAmount - taxable %}
+                                    {% set total_taxable.value = total_taxable.value + taxable %}
+                                    {% set total_tax.value = total_tax.value + tax %}
+                                    <tr class="divide-x divide-gray-200">
+                                        <td class="px-4 py-3 text-center">{{ loop.index }}</td>
+                                        <td class="px-4 py-3">
+                                            <p class="font-medium text-gray-900">{{ item.ItemName }}</p>
+                                            <p class="text-gray-500 text-xs">{{ item.Description or '' }}</p>
+                                        </td>
+                                        <td class="px-4 py-3 text-right">{{ "%.2f"|format(item.Quantity) }} {{ item.UOM }}</td>
+                                        <td class="px-4 py-3 text-right">₹{{ item.UnitPrice | inr_format }}</td>
+                                        <td class="px-4 py-3 text-right">{{ item.HSNCode or 'N/A' }}</td>
+                                        <td class="px-4 py-3 text-right">{{ "%.2f"|format(item.GST_Percentage) }}%</td>
+                                        <td class="px-4 py-3 text-right font-semibold">₹{{ item.TotalAmount | inr_format }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot class="bg-gray-50">
+                                    <tr>
+                                        <td colspan="6" class="px-4 py-2 text-right font-medium text-gray-600">Total Taxable Amount</td>
+                                        <td class="px-4 py-2 text-right font-semibold text-gray-800">₹{{ total_taxable.value | inr_format }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="6" class="px-4 py-2 text-right font-medium text-gray-600">Total Tax</td>
+                                        <td class="px-4 py-2 text-right font-semibold text-gray-800">₹{{ total_tax.value | inr_format }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="6" class="px-4 py-3 text-right font-bold text-gray-800 text-base">Grand Total</td>
+                                        <td class="px-4 py-3 text-right font-extrabold text-gray-900 text-base">₹{{ selected_pr.TotalAmount | inr_format }}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attachments Tab -->
+                <div x-show="activeTab === 'attachments'" style="display: none;">
+                    <div class="bg-white p-6 rounded-lg border border-gray-200">
+                        <h3 class="font-semibold text-lg mb-4">Attachments</h3>
+                        {% if attachments %}
+                        <ul class="divide-y divide-gray-200">
+                            {% for attachment in attachments %}
+                            <li class="py-3 flex items-center justify-between">
+                                <div class="flex items-center space-x-3">
+
+                                    {% set fname = attachment.FileName | lower %}
+
+                                    {% if fname.endswith('.jpg') or fname.endswith('.jpeg') or fname.endswith('.png') or fname.endswith('.webp') or fname.endswith('.gif') %}
+                                    <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5z" />
+                                    </svg>
+
+                                    {% elif fname.endswith('.pdf') %}
+                                    <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                    </svg>
+
+                                    {% elif fname.endswith('.doc') or fname.endswith('.docx') %}
+                                    <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                    </svg>
+
+                                    {% elif fname.endswith('.xls') or fname.endswith('.xlsx') or fname.endswith('.csv') %}
+                                    <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 14h.01M12 17h.01M15 17h.01M15 10h.01M12 10h.01M9 10h.01M4 7h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V8a1 1 0 011-1z"></path>
+                                    </svg>
+
+                                    {% else %}
+                                    <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                                    {% endif %}
+                                    <a href="{{ url_for('static', filename=attachment.FilePath) }}" target="_blank" class="text-sm font-medium text-valproc-blue hover:underline">{{ attachment.FileName }}</a>
+                                </div>
+                                <span class="text-sm text-gray-500">{{ "%.2f"|format(attachment.FileSize / 1024) }} KB</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <p class="text-sm text-gray-500">No attachments found for this Purchase Request.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- History Tab -->
+                <div x-show="activeTab === 'history'" style="display: none;">
+                    <div class="bg-white p-6 rounded-lg border border-gray-200">
+                        <h3 class="font-semibold text-lg mb-4">Approval History</h3>
+                        <ol class="relative border-l border-gray-200 ml-3">
+                            {% if approval_history %}
+                            {% for event in approval_history %}
+                            <li class="mb-6 ml-6">
+                                <span class="absolute flex items-center justify-center w-6 h-6 rounded-full -left-3 ring-8 ring-white
+                                    {% if event.Status == 'Approved' %} bg-green-200 text-green-600
+                                    {% elif event.Status == 'Rejected' %} bg-red-200 text-red-600
+                                    {% elif event.Status == 'Pending' %} bg-yellow-200 text-yellow-600
+                                    {% else %} bg-blue-200 text-blue-600 {% endif %}">
+                                    {% if event.Status == 'Approved' %}<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
+                                    {% elif event.Status == 'Rejected' %}<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path></svg>
+                                    {% else %}<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z"></path><path fill-rule="evenodd" d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2H5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H8zm3 0a1 1 0 000 2h.01a1 1 0 100-2H11z" clip-rule="evenodd"></path></svg>
+                                    {% endif %}
+                                </span>
+                                <h4 class="flex items-center mb-1 text-base font-semibold text-gray-900">{{ event.Status }} by {{ event.Role }}</h4>
+                                <time class="block mb-2 text-sm font-normal leading-none text-gray-400">On {{ event.ActionDate.strftime('%d %b, %Y %I:%M %p') if event.ActionDate else '' }} by {{ event.ActionUser }}</time>
+                                {% if event.Comments %}<p class="mb-4 text-sm font-normal text-gray-500 p-2 bg-gray-50 rounded-md border">{{ event.Comments }}</p>{% endif %}
+                            </li>
+                            {% endfor %}
+                            {% else %}
+                            <p class="ml-6 text-sm text-gray-500">No approval history found.</p>
+                            {% endif %}
+                        </ol>
+                    </div>
+                </div>
+
+                <!-- RFQ & PO Tab -->
+                <div x-show="activeTab === 'documents'" style="display: none;">
+                    <!-- Related RFQs -->
+                    <div class="bg-white p-6 rounded-lg border border-gray-200">
+                        <h3 class="font-semibold text-lg mb-4">Related RFQs</h3>
+                        {% if related_rfqs %}
+                        <ul class="divide-y divide-gray-200">
+                            {% for rfq in related_rfqs %}
+                            <li class="py-3">
+                                <a href="{{ url_for('rfq.view_rfqs', rfq_id=rfq.RFQ_ID) }}" class="flex justify-between items-center group">
+                                    <div>
+                                        <p class="font-medium text-valproc-blue group-hover:underline">{{ rfq.RFQ_Number }}</p>
+                                        <p class="text-sm text-gray-600">{{ rfq.Title }}</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="text-xs font-medium px-2.5 py-0.5 rounded-full {{ status_colors.get(rfq.Status, 'bg-gray-100 text-gray-800') }}">{{ rfq.Status }}</span>
+                                        <p class="text-xs text-gray-500 mt-1">{{ rfq.CreatedDate.strftime('%d %b, %Y') }}</p>
+                                    </div>
+                                </a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <p class="text-sm text-gray-500">No RFQs have been created from this Purchase Request.</p>
+                        {% endif %}
+                    </div>
+                    <!-- Related POs -->
+                    <div class="mt-6 bg-white p-6 rounded-lg border border-gray-200">
+                        <h3 class="font-semibold text-lg mb-4">Related Purchase Orders</h3>
+                        {% if related_pos %}
+                        <ul class="divide-y divide-gray-200">
+                            {% for po in related_pos %}
+                            <li class="py-3">
+                                <a href="{{ url_for('po.view_pos', po_id=po.PO_ID) }}" class="flex justify-between items-center group">
+                                    <div>
+                                        <p class="font-medium text-valproc-blue group-hover:underline">{{ po.PO_Number }}</p>
+                                        <p class="text-sm text-gray-600">{{ po.Title }}</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <span class="text-xs font-medium px-2.5 py-0.5 rounded-full {{ status_colors.get(po.Status, 'bg-gray-100 text-gray-800') }}">{{ po.Status }}</span>
+                                        <p class="text-sm font-semibold text-gray-700 mt-1">₹{{ po.TotalAmount | inr_format }}</p>
+                                    </div>
+                                </a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% else %}
+                        <p class="text-sm text-gray-500">No Purchase Orders have been created from this Purchase Request.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            {% else %}
+            <div class="flex items-center justify-center h-full">
+                <div class="text-center">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                    </svg>
+                    <h3 class="mt-2 text-sm font-semibold text-gray-900">No Purchase Request Selected</h3>
+                    <p class="mt-1 text-sm text-gray-500">Select a request from the list to view its details.</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Approval Action Modal -->
+    <div x-show="modalOpen" style="display: none;" @keydown.escape.window="modalOpen = false" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50">
+        <div @click.away="modalOpen = false" class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm">
+            <h3 class="text-lg font-medium text-gray-900" x-text="modalTitle"></h3>
+            <p class="mt-2 text-sm text-gray-600" x-text="modalMessage"></p>
+            <div class="mt-4">
+                <label for="modalComments" class="block text-sm font-medium text-gray-700">Comments <span x-show="action === 'reject'" class="text-red-500">*</span></label>
+                <textarea x-model="comments" id="modalComments" name="comments" rows="3" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm"></textarea>
+            </div>
+            <div class="mt-6 flex justify-end space-x-3">
+                <button @click="modalOpen = false" type="button" class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button @click="submitAction()" type="button" class="inline-flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white" :class="action === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'">Confirm</button>
+            </div>
+            <!-- Hidden Forms -->
+            {% if selected_pr %}
+            <form x-ref="approveForm" action="{{ url_for('pr.approve', pr_id=selected_pr.PR_ID) }}" method="POST" class="hidden">
+                <input type="hidden" name="comments" :value="comments">
+            </form>
+            <form x-ref="rejectForm" action="{{ url_for('pr.reject', pr_id=selected_pr.PR_ID) }}" method="POST" class="hidden">
+                <input type="hidden" name="comments" :value="comments">
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Create RFQ Modal -->
+    {% if selected_pr %}
+    <div x-show="rfqModalOpen" style="display: none;" @keydown.escape.window="rfqModalOpen = false" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div @click.away="rfqModalOpen = false" class="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-full flex flex-col">
+            <h3 class="text-lg font-medium text-gray-900 p-6 border-b">Create RFQ from {{ selected_pr.PR_Number }}</h3>
+            <form action="{{ url_for('rfq.create_from_pr_action') }}" method="POST" enctype="multipart/form-data" class="flex-grow contents">
+                <div class="flex-grow p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 items-start">
+                    <!-- Left: RFQ Details -->
+                    <div class="space-y-4">
+                        <input type="hidden" name="pr_id" value="{{ selected_pr.PR_ID }}">
+                        <input type="hidden" name="billing_address" value="{{ selected_pr.BillingAddressID }}">
+                        <input type="hidden" name="shipping_address" value="{{ selected_pr.ShippingAddressID }}">
+                        <div>
+                            <label for="rfq_start_date" class="block text-sm font-medium text-gray-700">RFQ Start Date <span class="text-red-500">*</span></label>
+                            <input type="date" id="rfq_start_date" name="rfq_start_date" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="rfq_end_date" class="block text-sm font-medium text-gray-700">RFQ End Date <span class="text-red-500">*</span></label>
+                            <input type="date" id="rfq_end_date" name="rfq_end_date" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="rfq_notes" class="block text-sm font-medium text-gray-700">Note to Vendors</label>
+                            <textarea id="rfq_notes" name="rfq_notes" rows="4" class="w-full mt-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm" placeholder="Add any special instructions or terms..."></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Attachments for Vendors</label>
+                            <div class="mt-1 flex flex-col justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+                                <div class="space-y-1 text-center">
+                                    <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                                    <div class="flex justify-center text-sm text-gray-600">
+                                        <label for="rfq-attachments" class="relative cursor-pointer bg-white rounded-md font-medium text-valproc-blue hover:text-valproc-blue-dark focus-within:outline-none">
+                                            <span>Upload files</span>
+                                            <input id="rfq-attachments" name="rfq-attachments" type="file" class="sr-only" multiple @change="handleRfqFiles">
+                                        </label>
+                                        <p class="pl-1">or drag and drop</p>
+                                    </div>
+                                    <p class="text-xs text-gray-500">PNG, JPG, PDF up to 10MB</p>
+                                </div>
+                                <div id="rfq-file-list" class="mt-4 text-sm text-left space-y-2">
+                                    <template x-for="(file, index) in rfqFiles" :key="index">
+                                        <div class="flex items-center justify-between bg-gray-100 p-2 rounded-md">
+                                            <span class="truncate" x-text="file.name"></span>
+                                            <button @click.prevent="removeRfqFile(index)" type="button" class="text-red-500 hover:text-red-700">&times;</button>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Right: Vendor Selection -->
+                    <div class="flex flex-col space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Select Vendors <span class="text-red-500">*</span></label>
+                            <input x-model="vendorSearch" type="text" placeholder="Search vendors..." class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm sm:text-sm">
+                        </div>
+                        <div class="border rounded-md flex-grow overflow-y-auto max-h-48">
+                            <ul>
+                                <template x-for="vendor in filteredVendors" :key="vendor.VendorID">
+                                    <li class="p-2 hover:bg-gray-100 cursor-pointer" @click="toggleVendor(vendor)">
+                                        <input type="checkbox" :checked="selectedVendorIds.includes(vendor.VendorID)" class="mr-2 pointer-events-none">
+                                        <span x-text="vendor.VendorName" class="text-sm"></span>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                        <div>
+                            <p class="text-sm font-medium text-gray-700">Selected Vendors:</p>
+                            <div class="flex flex-wrap gap-2 mt-2">
+                                <template x-for="vendor in selectedVendors" :key="vendor.VendorID">
+                                    <span class="inline-flex items-center gap-x-1.5 rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+                                        <span x-text="vendor.VendorName"></span>
+                                        <button @click.prevent="removeVendor(vendor.VendorID)" type="button" class="h-3.5 w-3.5 rounded-sm text-gray-500 hover:bg-gray-200 hover:text-gray-700">
+                                            <svg viewBox="0 0 14 14" class="h-3 w-3"><path d="M4 4l6 6m0-6l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                        </button>
+                                    </span>
+                                </template>
+                                <p x-show="selectedVendors.length === 0" class="text-xs text-gray-500">No vendors selected.</p>
+                            </div>
+                        </div>
+                        <input type="hidden" name="vendor_ids" :value="selectedVendorIds.join(',')">
+                    </div>
+                </div>
+                <div class="p-4 bg-gray-50 border-t flex justify-end space-x-3">
+                    <button type="button" @click="rfqModalOpen = false" class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                    <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-valproc-orange hover:bg-valproc-orange-dark">Create & Send RFQ</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% if selected_pr.Status == 'Approved' %}
+    {% include 'pr/_create_po_modal.html' %}
+    {% endif %}
+    {% endif %}
+</div>
+
+<script>
+    function prView() {
+        return {
+            activeTab: 'details',
+            modalOpen: false,
+            rfqModalOpen: false,
+            modalTitle: '',
+            modalMessage: '',
+            showCreatePOModal: false,
+            action: '',
+            comments: '',
+            allVendors: {{ all_vendors | tojson | safe }},
+            vendorSearch: '',
+            selectedVendorIds: [],
+            rfqFiles: [],
+
+            initScroll(selectedId) {
+                // Scroll the selected item into view on load if an ID exists
+                if (selectedId) {
+                    this.$nextTick(() => {
+                        const element = document.getElementById(`list-item-pr-${selectedId}`);
+                        if (element && this.$refs.listContainer) {
+                            element.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+														 
+																						 
+							 
+																	  
+															
+																		 
+																						  
+                        }
+                    });
+                }
+				   
+            },
+
+            init() {
+                this.$watch('rfqModalOpen', (value) => {
+                    if (value) {
+                        this.$nextTick(() => {
+                            const startDateInput = document.getElementById('rfq_start_date');
+                            const endDateInput = document.getElementById('rfq_end_date');
+                            if (startDateInput && !startDateInput.value) {
+                                const today = new Date();
+                                startDateInput.value = today.toISOString().split('T')[0];
+                            }
+                            if (endDateInput && !endDateInput.value) {
+                                const tomorrow = new Date();
+                                tomorrow.setDate(tomorrow.getDate() + 1);
+                                endDateInput.value = tomorrow.toISOString().split('T')[0];
+                            }
+                        });
+                    }
+                });
+            },
+
+            handleRfqFiles(event) {
+                this.rfqFiles = Array.from(event.target.files);
+            },
+
+            removeRfqFile(index) {
+                this.rfqFiles.splice(index, 1);
+                // Create a new DataTransfer object and re-add the remaining files
+                const dataTransfer = new DataTransfer();
+                this.rfqFiles.forEach(file => dataTransfer.items.add(file));
+                // Assign the new FileList to the input
+                document.getElementById('rfq-attachments').files = dataTransfer.files;
+            },
+
+            get filteredVendors() {
+                if (this.vendorSearch === '') {
+                    return this.allVendors;
+                }
+                return this.allVendors.filter(vendor =>
+                    vendor.VendorName.toLowerCase().includes(this.vendorSearch.toLowerCase())
+                );
+            },
+            get selectedVendors() {
+                return this.allVendors.filter(vendor => this.selectedVendorIds.includes(vendor.VendorID));
+            },
+            toggleVendor(vendor) {
+                const index = this.selectedVendorIds.indexOf(vendor.VendorID);
+                if (index === -1) {
+                    this.selectedVendorIds.push(vendor.VendorID);
+                } else {
+                    this.selectedVendorIds.splice(index, 1);
+                }
+            },
+            removeVendor(vendorId) {
+                const index = this.selectedVendorIds.indexOf(vendorId);
+                if (index > -1) {
+                    this.selectedVendorIds.splice(index, 1);
+                }
+            },
+            openModal(type) {
+                this.action = type;
+                if (type === 'approve') {
+                    this.modalTitle = 'Confirm Approval';
+                    this.modalMessage = 'Are you sure you want to approve this Purchase Request?';
+                } else {
+                    this.modalTitle = 'Confirm Rejection';
+                    this.modalMessage = 'Are you sure you want to reject this Purchase Request?';
+                }
+                this.modalOpen = true;
+            },
+            submitAction() {
+                if (this.action === 'reject' && !this.comments.trim()) {
+                    alert('Comments are required for rejection.');
+                    return;
+                }
+
+                if (this.action === 'approve') {
+                    this.$refs.approveForm.submit();
+                } else {
+                    this.$refs.rejectForm.submit();
+                }
+                this.modalOpen = false;
+            }
+        }
+    }
+</script>
+<script src="//unpkg.com/alpinejs" defer></script>
+{% endblock %}
+

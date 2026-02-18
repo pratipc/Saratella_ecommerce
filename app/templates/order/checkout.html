@@ -1,0 +1,332 @@
+<!-- File: checkout.html -->
+<!-- Location: /app/templates/order/ -->
+{% extends 'user/user_base.html' %}
+
+{% block title %}Checkout - Saratella{% endblock %}
+
+{% block user_content %}
+<style>
+    [x-cloak] { display: none !important; }
+    .modal-backdrop {
+        background-color: rgba(243, 244, 246, 0.8);
+        backdrop-filter: blur(4px);
+    }
+    .address-scroll::-webkit-scrollbar { width: 4px; }
+    .address-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
+    .address-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+    .address-scroll::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+</style>
+
+<script>
+    window.checkoutData = {
+        isMember: {{ 'true' if session.get('user_id') else 'false' }},
+        savedAddresses: {{ addresses | tojson if addresses else '[]' }},
+        userEmail: {{ session.get('email', '') | tojson }},
+        userPhone: {{ user_phone | tojson if user_phone else '""' }},
+        cartTotal: {{ cart.total }},
+        urls: {
+            placeOrder: "{{ url_for('orders.place_order') }}",
+            dashboard: "{{ url_for('user.dashboard') }}"
+        }
+    };
+
+    document.addEventListener('alpine:init', () => {
+        Alpine.data('checkoutModal', () => ({
+            ...window.checkoutData,
+            
+            isLoading: false,
+            // Shipping State
+            selectedShippingId: null,
+            showNewShippingForm: false,
+            
+            // Billing State
+            selectedBillingId: null,
+            
+            // Forms
+            shippingForm: { line1: '', city: '', zip: '', state: '', country: '' },
+            
+            // Contact
+            guestEmail: window.checkoutData.userEmail,
+            guestPhone: window.checkoutData.userPhone,
+
+            // Computed: Filter out "Billing" addresses from the Shipping list
+            get filteredShippingAddresses() {
+                if (!this.savedAddresses) return [];
+                return this.savedAddresses.filter(addr => 
+                    !addr.address_type || addr.address_type.toLowerCase() !== 'billing'
+                );
+            },
+
+            init() {
+                if (this.isMember) {
+                    // Default Shipping: First non-billing address
+                    const validShips = this.filteredShippingAddresses;
+                    if (validShips.length > 0) {
+                        this.selectedShippingId = validShips[0].address_id;
+                    } else {
+                        // If no valid shipping addresses (e.g. only billing saved), show new form
+                        this.showNewShippingForm = true;
+                    }
+
+                    // Default Billing: First available address
+                    if (this.savedAddresses.length > 0) {
+                        this.selectedBillingId = this.savedAddresses[0].address_id;
+                    }
+                }
+            },
+
+            // Helper to get formatted string for Shipping
+            getShippingString() {
+                // If using saved address
+                if (this.isMember && !this.showNewShippingForm) {
+                    const addr = this.savedAddresses.find(a => a.address_id == this.selectedShippingId);
+                    if (addr) {
+                        return `${addr.address_line1}, ${addr.city}, ${addr.state || ''} ${addr.postal_code}, ${addr.country}`;
+                    }
+                    return '';
+                } 
+                // If adding new
+                else {
+                    const f = this.shippingForm;
+                    if (!f.line1 || !f.city || !f.zip || !f.country) return '';
+                    return `${f.line1}, ${f.city}, ${f.state} ${f.zip}, ${f.country}`;
+                }
+            },
+
+            // Helper to get formatted string for Billing
+            getBillingString() {
+                // Must be saved address
+                const addr = this.savedAddresses.find(a => a.address_id == this.selectedBillingId);
+                if (addr) {
+                    return `${addr.address_line1}, ${addr.city}, ${addr.state || ''} ${addr.postal_code}, ${addr.country}`;
+                }
+                return '';
+            },
+
+            validate() {
+                if (!this.guestPhone) { alert("Please enter a phone number."); return false; }
+                if (!this.isMember && !this.guestEmail) { alert("Please enter an email address."); return false; }
+
+                if (!this.getShippingString()) { alert("Please complete the Shipping Address."); return false; }
+                if (!this.getBillingString()) { alert("Please select a Billing Address."); return false; }
+
+                return true;
+            },
+
+            placeOrder() {
+                if (!this.validate()) return;
+
+                this.isLoading = true;
+                const shippingAddr = this.getShippingString();
+                const billingAddr = this.getBillingString();
+
+                // Prepare payload
+                const payload = {
+                    shipping_address: shippingAddr,
+                    billing_address: billingAddr,
+                    total_amount: this.cartTotal,
+                    guest_email: this.isMember ? this.userEmail : this.guestEmail,
+                    guest_phone: this.guestPhone,
+                    
+                    // Flags for backend to save this new address
+                    save_new_shipping: (this.isMember && this.showNewShippingForm),
+                    shipping_components: (this.isMember && this.showNewShippingForm) ? this.shippingForm : null
+                };
+
+                fetch(this.urls.placeOrder, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        alert("Error: " + data.error);
+                        this.isLoading = false;
+                    } else {
+                        window.location.href = "/api/orders/confirmation/" + data.order.order_number;
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert("System Error. Please try again.");
+                    this.isLoading = false;
+                });
+            }
+        }));
+    });
+</script>
+
+<div class="fixed inset-0 z-40 overflow-y-auto modal-backdrop flex items-center justify-center p-4" x-data="checkoutModal" x-cloak>
+    <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-gray-200 overflow-hidden transform transition-all relative flex flex-col max-h-[90vh]">
+        
+        <!-- Header -->
+        <div class="px-8 py-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center shrink-0">
+            <div>
+                <h2 class="text-2xl font-bold text-gray-900">Checkout</h2>
+                <p class="text-xs text-gray-500 mt-1">Confirm details to place order.</p>
+            </div>
+            <div class="text-right">
+                <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Total</p>
+                <p class="text-lg font-bold text-blue-600">₹{{ "{:,.2f}".format(cart.total) }}</p>
+            </div>
+        </div>
+
+        <!-- Body -->
+        <div class="p-8 overflow-y-auto custom-scrollbar">
+
+            <!-- SECTION 0: ORDER SUMMARY -->
+            <div class="mb-8 bg-gray-50/50 rounded-xl border border-gray-200 p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="font-bold text-gray-800 text-xs uppercase tracking-wide">Order Summary ({{ cart.cart_items|length }})</h3>
+                    <a href="{{ url_for('cart.view_cart') }}" class="text-[10px] font-bold text-blue-600 hover:underline">Edit Cart</a>
+                </div>
+                
+                <div class="space-y-3 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                    {% for item in cart.cart_items %}
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 bg-white rounded border border-gray-200 overflow-hidden flex-shrink-0">
+                             <img src="{{ item.image_url if item.image_url else 'https://via.placeholder.com/150?text=No+Img' }}" 
+                                  alt="{{ item.product_name }}" 
+                                  class="w-full h-full object-cover">
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-bold text-gray-900 truncate">{{ item.product_name }}</p>
+                            <p class="text-[10px] text-gray-500">{{ item.variant_details if item.variant_details else item.category }}</p>
+                        </div>
+                        <div class="text-right flex-shrink-0">
+                            <p class="text-xs font-bold text-gray-900">₹{{ "{:,.2f}".format(item.price * item.quantity) }}</p>
+                            <p class="text-[10px] text-gray-500">x{{ item.quantity }}</p>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                <div class="mt-4 pt-3 border-t border-gray-200 flex justify-between items-center">
+                    <span class="text-xs text-gray-500 font-medium">Subtotal (excl. tax)</span>
+                    <span class="text-xs font-bold text-gray-700">₹{{ "{:,.2f}".format(cart.subtotal) }}</span>
+                </div>
+            </div>
+            
+            <!-- SECTION 1: SHIPPING ADDRESS -->
+            <div class="mb-8">
+                <div class="flex justify-between items-end mb-3">
+                    <h3 class="font-bold text-gray-800 text-xs uppercase tracking-wide">Shipping Address</h3>
+                    <!-- Only show toggle if we have valid non-billing addresses to toggle between -->
+                    <button x-show="isMember && filteredShippingAddresses.length > 0" 
+                            @click="showNewShippingForm = !showNewShippingForm" 
+                            class="text-xs font-semibold text-blue-600 hover:underline" 
+                            x-text="showNewShippingForm ? 'Select Saved' : '+ Add New'">
+                    </button>
+                </div>
+
+                <!-- Saved Shipping Addresses (Filtered: No 'Billing' addresses) -->
+                <div x-show="isMember && !showNewShippingForm && filteredShippingAddresses.length > 0">
+                    <div class="space-y-2 max-h-40 overflow-y-auto address-scroll border border-gray-200 rounded-lg p-2 bg-gray-50/50 shadow-inner">
+                        <template x-for="addr in filteredShippingAddresses" :key="'ship-'+addr.address_id">
+                            <label class="flex items-center gap-3 p-3 border rounded-md cursor-pointer transition-all hover:bg-white hover:shadow-sm"
+                                   :class="selectedShippingId == addr.address_id ? 'border-blue-500 bg-white ring-1 ring-blue-500' : 'border-gray-200 bg-white'">
+                                <div class="flex-shrink-0">
+                                    <input type="radio" name="shippingAddr" :value="addr.address_id" x-model="selectedShippingId" class="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300">
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <span class="font-bold text-xs text-gray-800 uppercase block" x-text="addr.address_type"></span>
+                                    <p class="text-xs text-gray-600 truncate leading-tight" x-text="`${addr.address_line1}, ${addr.city}`"></p>
+                                    <p class="text-[10px] text-gray-400 mt-0.5" x-text="`${addr.state || ''} ${addr.postal_code}, ${addr.country}`"></p>
+                                </div>
+                            </label>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- New Shipping Form (Always shown if no valid saved addresses, or toggle on) -->
+                <div x-show="!isMember || showNewShippingForm || filteredShippingAddresses.length === 0" class="space-y-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <input type="text" x-model="shippingForm.line1" placeholder="Street Address" class="w-full px-3 py-2 text-sm border rounded focus:ring-1 focus:ring-blue-500 outline-none">
+                    <div class="grid grid-cols-2 gap-3">
+                        <input type="text" x-model="shippingForm.city" placeholder="City" class="w-full px-3 py-2 text-sm border rounded focus:ring-1 focus:ring-blue-500 outline-none">
+                        <input type="text" x-model="shippingForm.zip" placeholder="Zip Code" class="w-full px-3 py-2 text-sm border rounded focus:ring-1 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <input type="text" x-model="shippingForm.state" placeholder="State/Province" class="w-full px-3 py-2 text-sm border rounded focus:ring-1 focus:ring-blue-500 outline-none">
+                        <input type="text" x-model="shippingForm.country" placeholder="Country" class="w-full px-3 py-2 text-sm border rounded focus:ring-1 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div x-show="isMember" class="text-[10px] text-green-600 flex items-center gap-1 mt-1">
+                        <i class="fas fa-check-circle"></i> This address will be saved to your profile.
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION 2: BILLING ADDRESS -->
+            <div class="mb-8 pt-6 border-t border-gray-100">
+                <div class="flex justify-between items-end mb-3">
+                    <h3 class="font-bold text-gray-800 text-xs uppercase tracking-wide">Select Billing Address</h3>
+                </div>
+
+                <!-- Saved Billing Addresses (Shows ALL addresses) -->
+                <div x-show="savedAddresses.length > 0">
+                    <div class="space-y-2 max-h-40 overflow-y-auto address-scroll border border-gray-200 rounded-lg p-2 bg-gray-50/50 shadow-inner">
+                        <template x-for="addr in savedAddresses" :key="'bill-'+addr.address_id">
+                            <label class="flex items-center gap-3 p-3 border rounded-md cursor-pointer transition-all hover:bg-white hover:shadow-sm"
+                                   :class="selectedBillingId == addr.address_id ? 'border-blue-500 bg-white ring-1 ring-blue-500' : 'border-gray-200 bg-white'">
+                                <div class="flex-shrink-0">
+                                    <input type="radio" name="billingAddr" :value="addr.address_id" x-model="selectedBillingId" class="w-4 h-4 text-blue-600 focus:ring-blue-500 border-gray-300">
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <span class="font-bold text-xs text-gray-800 uppercase block" x-text="addr.address_type"></span>
+                                    <p class="text-xs text-gray-600 truncate leading-tight" x-text="`${addr.address_line1}, ${addr.city}`"></p>
+                                    <p class="text-[10px] text-gray-400 mt-0.5" x-text="`${addr.state || ''} ${addr.postal_code}`"></p>
+                                </div>
+                            </label>
+                        </template>
+                    </div>
+                </div>
+                
+                <!-- Fallback if no saved addresses are available for billing -->
+                <div x-show="savedAddresses.length === 0" class="p-4 bg-yellow-50 text-yellow-800 text-xs rounded-lg border border-yellow-200">
+                    No saved addresses found. Please add an address in your profile.
+                </div>
+            </div>
+
+            <!-- SECTION 3: CONTACT & PAYMENT -->
+            <div class="pt-6 border-t border-gray-100">
+                <div class="space-y-4">
+                    <div x-show="!isMember" class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Email</label>
+                            <input type="email" x-model="guestEmail" class="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Phone</label>
+                            <input type="tel" x-model="guestPhone" class="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 outline-none">
+                        </div>
+                    </div>
+                    
+                    <div x-show="isMember">
+                        <label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Contact Phone</label>
+                        <input type="tel" x-model="guestPhone" class="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 outline-none" placeholder="e.g. +1 555-0123">
+                    </div>
+
+                    <div class="flex items-center gap-3 p-3 bg-slate-50 border border-slate-100 text-slate-700 rounded-lg text-xs mt-4">
+                        <div class="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-slate-200 text-slate-400">
+                            <i class="far fa-credit-card"></i>
+                        </div>
+                        <div>
+                            <span class="font-bold text-slate-900">Pay on Delivery</span><br>
+                            <span class="opacity-75">Secure payment upon receipt.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-8 py-4 border-t border-gray-100 bg-gray-50 flex gap-3 justify-end shrink-0">
+            <a href="{{ url_for('cart.view_cart') }}" class="px-5 py-2 text-xs font-bold text-gray-600 hover:bg-gray-200 rounded transition uppercase tracking-wide">Cancel</a>
+            <button @click="placeOrder()" :disabled="isLoading" class="px-6 py-2 bg-slate-900 text-white text-xs font-bold rounded hover:bg-slate-800 flex items-center gap-2 transition uppercase tracking-wide shadow-sm hover:shadow">
+                <span x-show="!isLoading">Confirm Order</span>
+                <span x-show="isLoading"><i class="fas fa-spinner fa-spin"></i></span>
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}

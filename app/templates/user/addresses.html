@@ -1,0 +1,315 @@
+<!-- File: addresses.html -->
+<!-- Location: /app/templates/user/ -->
+
+{% extends "user/user_base.html" %}
+
+{% block title %}My Addresses - Saratella{% endblock %}
+
+{% block user_content %}
+    <!-- Alpine x-data Wrapper -->
+    <div x-data="{ 
+            modalOpen: false, 
+            editForm: {
+                id: '',
+                type: '',
+                line1: '',
+                line2: '',
+                city: '',
+                state: '',
+                zip: '',
+                country: ''
+            },
+            openEdit(addr) {
+                // Populate the form data
+                this.editForm = {
+                    id: addr.address_id,
+                    type: addr.address_type || 'Shipping',
+                    line1: addr.address_line1,
+                    line2: addr.address_line2 || '',
+                    city: addr.city,
+                    state: addr.state || '',
+                    zip: addr.postal_code,
+                    country: addr.country
+                };
+                this.modalOpen = true;
+            },
+            closeEdit() {
+                this.modalOpen = false;
+            }
+         }" class="h-full flex flex-col">
+
+        <!-- Header Section -->
+        <div class="mb-6 flex flex-col md:flex-row md:items-end md:justify-between gap-4 flex-shrink-0">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">Address Book</h1>
+                <p class="text-xs text-gray-500 mt-1">Manage your shipping and billing locations.</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 h-full overflow-hidden">
+            
+            <!-- Add New Address Form (Sticky / Fixed Left) -->
+            <div class="lg:col-span-1 h-full overflow-y-auto custom-scrollbar pr-2">
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 bg-gray-50/50 border-b border-gray-100">
+                        <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                            <i class="fas fa-plus-circle text-blue-500"></i> Add New Address
+                        </h3>
+                    </div>
+                    <div class="p-6">
+                        <form action="{{ url_for('user.add_address') }}" method="POST" class="space-y-4">
+                            <!-- Address Type Selection -->
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Address Type</label>
+                                <select name="address_type" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white transition" required>
+                                    <option value="" disabled selected>-- Select Type --</option>
+                                    <option value="Shipping">Shipping Address</option>
+                                    <option value="Billing">Billing Address</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Address Line 1</label>
+                                <input type="text" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition" name="address_line1" placeholder="location address" required>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Address Line 2</label>
+                                <input type="text" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition" name="address_line2" placeholder="building details">
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">City</label>
+                                    <input type="text" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition" name="city" required>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">State</label>
+                                    <input type="text" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition" name="state">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Zip Code</label>
+                                    <input type="text" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition" name="postal_code" required>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Country</label>
+                                    <input type="text" class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition" name="country" required>
+                                </div>
+                            </div>
+                            <div class="pt-2">
+                                <button type="submit" class="w-full py-2.5 px-4 bg-slate-900 text-white text-xs font-bold uppercase tracking-wide rounded-lg hover:bg-slate-800 transition shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                                    Save Address
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Existing Addresses List (Scrollable Area) -->
+            <div class="lg:col-span-2 h-full overflow-hidden flex flex-col">
+                <div class="overflow-y-auto custom-scrollbar pr-2 pb-4 h-full" style="max-height: calc(100vh - 200px);">
+                    
+                    {% if active_addresses or inactive_addresses %}
+                    <div class="space-y-8">
+                        
+                        <!-- Group: Billing Addresses -->
+                        {% set billing_addrs = active_addresses | selectattr("address_type", "equalto", "Billing") | list %}
+                        {% if billing_addrs %}
+                        <div>
+                            <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 pl-1">Billing Addresses</h4>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {% for addr in billing_addrs %}
+                                    <div class="group relative bg-white rounded-xl border border-gray-200 p-5 hover:border-purple-400 hover:shadow-md transition-all duration-200 flex flex-col h-full">
+                                        <div class="flex justify-between items-start mb-3">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-purple-50 text-purple-600">
+                                                    <i class="fas fa-file-invoice-dollar"></i>
+                                                </div>
+                                                <div>
+                                                    <h4 class="font-bold text-gray-900 text-xs uppercase tracking-wide">Billing</h4>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button type="button" @click='openEdit({{ addr | tojson | safe }})' class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"><i class="fas fa-pen text-[10px]"></i></button>
+                                                <form action="{{ url_for('user.delete_address') }}" method="POST" onsubmit="return confirm('Delete this address?');" style="display:inline;">
+                                                    <input type="hidden" name="address_id" value="{{ addr.address_id }}">
+                                                    <button type="submit" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"><i class="fas fa-trash-alt text-[10px]"></i></button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-0.5 text-sm text-gray-600 flex-grow">
+                                            <p class="font-bold text-gray-900 block mb-1">{{ addr.address_line1 }}</p>
+                                            {% if addr.address_line2 %}<p class="text-xs">{{ addr.address_line2 }}</p>{% endif %}
+                                            <p class="text-xs">{{ addr.city }}, {{ addr.state }} {{ addr.postal_code }}</p>
+                                            <p class="text-xs text-gray-400 uppercase font-semibold mt-1">{{ addr.country }}</p>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Group: Shipping/Other Addresses -->
+                        {% set shipping_addrs = active_addresses | rejectattr("address_type", "equalto", "Billing") | list %}
+                        {% if shipping_addrs %}
+                        <div>
+                            <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 pl-1">Shipping Addresses</h4>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {% for addr in shipping_addrs %}
+                                    <div class="group relative bg-white rounded-xl border border-gray-200 p-5 hover:border-blue-400 hover:shadow-md transition-all duration-200 flex flex-col h-full">
+                                        <div class="flex justify-between items-start mb-3">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-8 h-8 rounded-lg flex items-center justify-center text-sm {{ 'bg-blue-50 text-blue-600' if addr.address_type == 'Home' else 'bg-gray-50 text-gray-500' }}">
+                                                    <i class="fas {{ 'fa-home' if addr.address_type == 'Home' else 'fa-map-marker-alt' }}"></i>
+                                                </div>
+                                                <div>
+                                                    <h4 class="font-bold text-gray-900 text-xs uppercase tracking-wide">{{ addr.address_type or 'Address' }}</h4>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button type="button" @click='openEdit({{ addr | tojson | safe }})' class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"><i class="fas fa-pen text-[10px]"></i></button>
+                                                <form action="{{ url_for('user.delete_address') }}" method="POST" onsubmit="return confirm('Delete this address?');" style="display:inline;">
+                                                    <input type="hidden" name="address_id" value="{{ addr.address_id }}">
+                                                    <button type="submit" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition"><i class="fas fa-trash-alt text-[10px]"></i></button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-0.5 text-sm text-gray-600 flex-grow">
+                                            <p class="font-bold text-gray-900 block mb-1">{{ addr.address_line1 }}</p>
+                                            {% if addr.address_line2 %}<p class="text-xs">{{ addr.address_line2 }}</p>{% endif %}
+                                            <p class="text-xs">{{ addr.city }}, {{ addr.state }} {{ addr.postal_code }}</p>
+                                            <p class="text-xs text-gray-400 uppercase font-semibold mt-1">{{ addr.country }}</p>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Group: Inactive Addresses (Professionally Styled) -->
+                        {% if inactive_addresses %}
+                        <div class="pt-8 border-t border-gray-100 mt-2">
+                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 pl-1 flex items-center gap-2">
+                                <i class="fas fa-history"></i> Archived Addresses
+                            </h4>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                {% for addr in inactive_addresses %}
+                                    <div class="relative bg-white rounded-xl border border-dashed border-gray-300 p-5 flex flex-col h-full opacity-80 hover:opacity-100 transition-opacity">
+                                        <div class="flex justify-between items-start mb-3">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-gray-100 text-gray-400">
+                                                    <i class="fas fa-archive"></i>
+                                                </div>
+                                                <div>
+                                                    <h4 class="font-bold text-gray-500 text-xs uppercase tracking-wide">Inactive</h4>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-0.5 text-sm text-gray-500 flex-grow">
+                                            <p class="font-bold block mb-1 text-gray-700">{{ addr.address_line1 }}</p>
+                                            {% if addr.address_line2 %}<p class="text-xs">{{ addr.address_line2 }}</p>{% endif %}
+                                            <p class="text-xs">{{ addr.city }}, {{ addr.state }} {{ addr.postal_code }}</p>
+                                            <p class="text-xs uppercase font-semibold mt-1">{{ addr.country }}</p>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+
+                    </div>
+                    {% else %}
+                    <!-- Empty State -->
+                    <div class="h-64 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center justify-center text-center bg-gray-50/30">
+                        <div class="w-14 h-14 bg-white rounded-full shadow-sm flex items-center justify-center mb-3 text-gray-300 border border-gray-100">
+                            <i class="fas fa-map-marked-alt text-xl"></i>
+                        </div>
+                        <h3 class="text-gray-900 font-bold text-sm mb-1">No addresses found</h3>
+                        <p class="text-gray-500 text-xs">Add a shipping or billing address to get started.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Edit Address Modal (Alpine.js) -->
+        <div x-show="modalOpen" 
+             style="display: none;" 
+             class="fixed inset-0 z-50 overflow-y-auto" 
+             aria-labelledby="modal-title" 
+             role="dialog" 
+             aria-modal="true">
+            
+            <div x-show="modalOpen"
+                 x-transition:enter="ease-out duration-300"
+                 x-transition:enter-start="opacity-0"
+                 x-transition:enter-end="opacity-100"
+                 x-transition:leave="ease-in duration-200"
+                 x-transition:leave-start="opacity-100"
+                 x-transition:leave-end="opacity-0"
+                 class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity" 
+                 @click="closeEdit()"></div>
+
+            <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
+                <div class="relative bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:max-w-lg w-full border border-gray-100">
+                    <div class="bg-white px-6 pt-6 pb-4">
+                        <h3 class="text-lg leading-6 font-bold text-gray-900" id="modal-title">Edit Address</h3>
+                        <div class="mt-6">
+                            <form action="{{ url_for('user.edit_address') }}" method="POST" class="space-y-4">
+                                <input type="hidden" name="address_id" x-model="editForm.id">
+                                
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Type</label>
+                                    <select name="address_type" x-model="editForm.type" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white">
+                                        <option value="Shipping">Shipping Address</option>
+                                        <option value="Billing">Billing Address</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Line 1</label>
+                                    <input type="text" name="address_line1" x-model="editForm.line1" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm" required>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Line 2</label>
+                                    <input type="text" name="address_line2" x-model="editForm.line2" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">City</label>
+                                        <input type="text" name="city" x-model="editForm.city" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">State</label>
+                                        <input type="text" name="state" x-model="editForm.state" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Zip Code</label>
+                                        <input type="text" name="postal_code" x-model="editForm.zip" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm" required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Country</label>
+                                        <input type="text" name="country" x-model="editForm.country" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm" required>
+                                    </div>
+                                </div>
+                                
+                                <div class="pt-6 flex justify-end gap-3 border-t border-gray-100 mt-2">
+                                    <button type="button" @click="closeEdit()" class="py-2 px-4 bg-white border border-gray-300 text-gray-700 font-bold rounded-lg hover:bg-gray-50 shadow-sm text-xs uppercase tracking-wide">
+                                        Cancel
+                                    </button>
+                                    <button type="submit" class="py-2 px-4 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 shadow-sm text-xs uppercase tracking-wide transition transform hover:-translate-y-0.5">
+                                        Update Address
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+{% endblock %}

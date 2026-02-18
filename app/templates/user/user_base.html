@@ -1,0 +1,539 @@
+<!-- File: user_base.html -->
+<!-- Location: /app/templates/user/ -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Saratella Online{% endblock %}</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        /* Custom scrollbar */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f3f4f6; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        
+        [x-cloak] { display: none !important; }
+    </style>
+
+    <!-- Define Scripts early to ensure availability before Alpine loads -->
+    <script>
+        // Custom Toast Function
+        function showToast(message, type = 'error') {
+            const container = document.getElementById('toast-container');
+            if (!container) return; 
+
+            const colorClass = type === 'success' ? 'border-green-500 text-green-500' : 'border-red-500 text-red-500';
+            const iconClass = type === 'success' ? 'fa-check-circle' : 'fa-info-circle';
+
+            const toast = document.createElement('div');
+            toast.className = `toast-item pointer-events-auto transform transition-all duration-500 ease-out translate-x-full opacity-0 flex items-start w-80 bg-white shadow-lg rounded-lg border-l-4 p-4 ${colorClass}`;
+            
+            toast.innerHTML = `
+                <div class="flex-shrink-0">
+                    <i class="fas ${iconClass} text-lg"></i>
+                </div>
+                <div class="ml-3 flex-1">
+                    <p class="text-sm text-gray-500">${message}</p>
+                </div>
+                <div class="ml-4 flex-shrink-0 flex">
+                    <button onclick="this.closest('.toast-item').remove()" class="text-gray-400 hover:text-gray-500">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+
+            container.appendChild(toast);
+
+            // Trigger animation
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    toast.classList.remove('translate-x-full', 'opacity-0');
+                }, 10);
+            });
+
+            // Auto dismiss
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.classList.add('translate-x-full', 'opacity-0');
+                    setTimeout(() => toast.remove(), 500);
+                }
+            }, 4000);
+        }
+
+        // Search Logic Definition
+        function searchLogic() {
+            return {
+                searchOpen: false,
+                query: '',
+                loading: false,
+                config: { categories: [], brands: [] },
+                filters: { category_id: '', brand_id: '', price: '' },
+                results: [],
+
+                openSearch() {
+                    this.searchOpen = true;
+                    if (this.config.categories.length === 0) {
+                        this.fetchConfig();
+                    }
+                    this.$nextTick(() => {
+                        // Ensure input exists before focusing
+                        if(this.$refs.searchInput) this.$refs.searchInput.focus();
+                    });
+                },
+
+                closeSearch() {
+                    this.searchOpen = false;
+                },
+
+                fetchConfig() {
+                    fetch('/api/user/search/config')
+                        .then(res => res.json())
+                        .then(data => {
+                            this.config = data;
+                        })
+                        .catch(err => console.error("Error fetching search config:", err));
+                },
+
+                performSearch() {
+                    this.loading = true;
+                    
+                    let minPrice = '';
+                    let maxPrice = '';
+                    if (this.filters.price) {
+                        const parts = this.filters.price.split('-');
+                        minPrice = parts[0];
+                        maxPrice = parts[1];
+                    }
+
+                    const params = new URLSearchParams({
+                        q: this.query,
+                        category_id: this.filters.category_id,
+                        brand_id: this.filters.brand_id,
+                        min_price: minPrice,
+                        max_price: maxPrice
+                    });
+
+                    fetch(`/api/user/search?${params.toString()}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            this.results = data.results || [];
+                            this.loading = false;
+                        })
+                        .catch(() => {
+                            this.loading = false;
+                        });
+                },
+                
+                clearFilters() {
+                    this.filters = { category_id: '', brand_id: '', price: '' };
+                    this.performSearch(); 
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="bg-gray-50 text-gray-900 font-sans h-screen flex overflow-hidden" x-data="searchLogic()">
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-3 pointer-events-none">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    {% set color = 'red' if category == 'error' else 'green' if category == 'success' else 'blue' %}
+                    <div class="toast-item pointer-events-auto transform transition-all duration-500 ease-out translate-x-full opacity-0 flex items-start w-80 bg-white shadow-lg rounded-lg border-l-4 border-{{ color }}-500 p-4">
+                        <div class="flex-shrink-0 text-{{ color }}-500">
+                            <i class="fas fa-info-circle text-lg"></i>
+                        </div>
+                        <div class="ml-3 flex-1">
+                            <p class="text-sm text-gray-500">{{ message }}</p>
+                        </div>
+                        <div class="ml-4 flex-shrink-0 flex">
+                            <button onclick="dismissToast(this.closest('.toast-item'))" class="text-gray-400 hover:text-gray-500">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white border-r border-gray-200 hidden md:flex flex-col flex-shrink-0">
+        
+        <!-- Logo Section -->
+        <div class="p-6 text-center border-b border-gray-100">
+            <a href="{{ url_for('user.dashboard') }}" class="text-2xl font-bold tracking-tight block">
+                <span class="text-blue-600">Saratella</span> <span class="text-gray-800">Online</span>
+            </a>
+        </div>
+
+        <!-- Nav Section -->
+        <nav class="flex-1 px-4 space-y-1 py-4 overflow-y-auto custom-scrollbar">
+            
+            <!-- Group: Menu -->
+            <div>
+                <h3 class="px-3 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Menu</h3>
+                
+                {% set is_dashboard = request.endpoint == 'user.dashboard' %}
+                <a href="{{ url_for('user.dashboard') }}" class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors {% if is_dashboard %}bg-blue-50 text-blue-700{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <span class="w-6 flex justify-center mr-3">
+                        <i class="fas fa-th-large text-base {% if is_dashboard %}text-blue-600{% else %}text-gray-400 group-hover:text-gray-500{% endif %}"></i>
+                    </span>
+                    <span class="truncate">Store</span>
+                </a>
+
+                <!-- Shop by Category Link -->
+                {% set is_cats = request.endpoint == 'user.shop_by_category' %}
+                <a href="{{ url_for('user.shop_by_category') }}" class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors {% if is_cats %}bg-blue-50 text-blue-700{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <span class="w-6 flex justify-center mr-3">
+                        <i class="fas fa-layer-group text-base {% if is_cats %}text-blue-600{% else %}text-gray-400 group-hover:text-gray-500{% endif %}"></i>
+                    </span>
+                    <span class="truncate">Shop by Category</span>
+                </a>
+
+                <!-- SEARCH BUTTON (Sidebar) -->
+                <a href="#" @click.prevent="openSearch()" class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors text-gray-700 hover:bg-gray-50 hover:text-gray-900">
+                    <span class="w-6 flex justify-center mr-3">
+                        <i class="fas fa-search text-base text-gray-400 group-hover:text-gray-500"></i>
+                    </span>
+                    <span class="truncate">Search Products</span>
+                </a>
+            </div>
+
+            <!-- Group: Account (Logged In Only) -->
+            {% if session.get('user_id') %}
+            <div class="mt-5">
+                <h3 class="px-3 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Account</h3>
+                
+                {% set is_profile = request.endpoint == 'user.profile' %}
+                <a href="{{ url_for('user.profile') }}" class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors {% if is_profile %}bg-blue-50 text-blue-700{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <span class="w-6 flex justify-center mr-3">
+                        <i class="fas fa-user-circle text-base {% if is_profile %}text-blue-600{% else %}text-gray-400 group-hover:text-gray-500{% endif %}"></i>
+                    </span>
+                    <span class="truncate">My Profile</span>
+                </a>
+
+                {% set is_orders = request.endpoint == 'user.my_orders' %}
+                <a href="{{ url_for('user.my_orders') }}" class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors {% if is_orders %}bg-blue-50 text-blue-700{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <span class="w-6 flex justify-center mr-3">
+                        <i class="fas fa-box text-base {% if is_orders %}text-blue-600{% else %}text-gray-400 group-hover:text-gray-500{% endif %}"></i>
+                    </span>
+                    <span class="truncate">My Orders</span>
+                </a>
+
+                {% set is_addresses = request.endpoint == 'user.get_addresses' %}
+                <a href="{{ url_for('user.get_addresses') }}" class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors {% if is_addresses %}bg-blue-50 text-blue-700{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <span class="w-6 flex justify-center mr-3">
+                        <i class="fas fa-map-marker-alt text-base {% if is_addresses %}text-blue-600{% else %}text-gray-400 group-hover:text-gray-500{% endif %}"></i>
+                    </span>
+                    <span class="truncate">Address Book</span>
+                </a>
+            </div>
+            {% endif %}
+
+            <!-- Group: Shopping -->
+            <div class="mt-5">
+                <h3 class="px-3 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Shopping</h3>
+                
+                {% set is_cart = request.endpoint == 'cart.view_cart' %}
+                <a href="{{ url_for('cart.view_cart') }}" class="group flex items-center justify-between px-3 py-2 text-sm font-medium rounded-md transition-colors {% if is_cart %}bg-blue-50 text-blue-700{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <div class="flex items-center truncate">
+                        <span class="w-6 flex justify-center mr-3">
+                            <i class="fas fa-shopping-cart text-base {% if is_cart %}text-blue-600{% else %}text-gray-400 group-hover:text-gray-500{% endif %}"></i>
+                        </span>
+                        <span class="truncate">My Cart</span>
+                    </div>
+                    <span id="cart-badge" class="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full hidden shadow-sm">0</span>
+                </a>
+
+                {% set is_track = request.endpoint == 'orders.track_order' %}
+                <a href="{{ url_for('orders.track_order') }}" class="group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors {% if is_track %}bg-blue-50 text-blue-700{% else %}text-gray-700 hover:bg-gray-50 hover:text-gray-900{% endif %}">
+                    <span class="w-6 flex justify-center mr-3">
+                        <i class="fas fa-search-location text-base {% if is_track %}text-blue-600{% else %}text-gray-400 group-hover:text-gray-500{% endif %}"></i>
+                    </span>
+                    <span class="truncate">Track Order</span>
+                </a>
+            </div>
+        </nav>
+
+        <!-- Footer Area -->
+        <div class="mt-auto p-4 border-t border-gray-200 bg-white">
+            {% if session.get('user_id') %}
+                <div class="mb-3 pb-3 border-b border-gray-100">
+                    <a href="{{ url_for('auth.logout') }}" class="group flex items-center px-3 py-2 text-xs font-bold text-gray-500 hover:text-red-600 transition-colors uppercase tracking-wide">
+                        <span class="w-6 flex justify-center mr-3">
+                            <i class="fas fa-sign-out-alt text-base text-gray-400 group-hover:text-red-500"></i>
+                        </span>
+                        Sign Out
+                    </a>
+                </div>
+            {% else %}
+                <div class="mb-3 pb-3 border-b border-gray-100">
+                    <a href="{{ url_for('auth.login') }}" class="group flex items-center px-3 py-2 text-xs font-bold text-gray-500 hover:text-blue-600 transition-colors uppercase tracking-wide">
+                        <span class="w-6 flex justify-center mr-3">
+                            <i class="fas fa-sign-in-alt text-base text-gray-400 group-hover:text-blue-500"></i>
+                        </span>
+                        Login / Register
+                    </a>
+                </div>
+            {% endif %}
+
+            <!-- User Info -->
+            <div class="flex items-center space-x-3 px-2 pt-1">
+                <div class="w-8 h-8 rounded-full {{ 'bg-gradient-to-tr from-blue-500 to-indigo-600' if session.get('user_id') else 'bg-gray-200' }} flex items-center justify-center text-white font-bold text-xs flex-shrink-0 shadow-sm ring-2 ring-white">
+                    {{ session.get('first_name', 'G')[0] }}
+                </div>
+                <div class="overflow-hidden">
+                    <p class="text-sm font-semibold text-gray-800 truncate leading-tight">
+                        {{ session.get('first_name', 'Guest User') }}
+                    </p>
+                    <p class="text-xs text-gray-400 truncate font-medium">
+                        {{ session.get('email', 'Not signed in') }}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col h-full relative overflow-hidden bg-white">
+        <!-- Top Bar -->
+        <header class="bg-white border-b border-gray-200 p-4 sticky top-0 z-30 flex items-center gap-4">
+            
+            <button class="md:hidden text-gray-500 focus:outline-none">
+                <i class="fas fa-bars text-xl"></i>
+            </button>
+            
+            <span class="md:hidden font-bold text-gray-800 text-lg mr-auto">Saratella</span>
+
+            <!-- Fake Search Bar (The "Button") -->
+            <div @click="openSearch()" class="flex-1 max-w-2xl mx-auto cursor-pointer group">
+                <div class="flex items-center bg-gray-100 hover:bg-gray-50 border border-transparent hover:border-gray-300 rounded-lg px-4 py-2.5 transition-all duration-200">
+                    <i class="fas fa-search text-gray-400 group-hover:text-gray-600 mr-3"></i>
+                    <span class="text-gray-400 text-sm font-medium group-hover:text-gray-600 select-none">Search for products, brands and more...</span>
+                </div>
+            </div>
+
+            <div class="hidden md:flex items-center gap-4">
+                <button class="text-gray-400 hover:text-gray-600 transition">
+                    <i class="far fa-bell text-lg"></i>
+                </button>
+            </div>
+
+        </header>
+
+        <!-- Main Content Area with Custom Scrollbar -->
+        <div class="flex-1 overflow-y-auto custom-scrollbar">
+            <div class="max-w-7xl mx-auto px-6 py-8 md:py-12">
+                {% block user_content %}{% endblock %}
+            </div>
+        </div>
+    </main>
+
+    <!-- SEARCH OVERLAY (Global) -->
+    <div x-show="searchOpen" class="fixed inset-0 z-[60]" role="dialog" aria-modal="true" x-cloak>
+        
+        <!-- Backdrop -->
+        <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" 
+             x-show="searchOpen"
+             x-transition:enter="ease-out duration-200"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="ease-in duration-150"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             @click="closeSearch()"></div>
+
+        <!-- Search Panel -->
+        <div class="relative w-full max-w-4xl mx-auto mt-4 sm:mt-16 px-4"
+             x-show="searchOpen"
+             x-transition:enter="ease-out duration-300"
+             x-transition:enter-start="opacity-0 -translate-y-4 scale-95"
+             x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+             x-transition:leave="ease-in duration-200"
+             x-transition:leave-start="opacity-100 translate-y-0 scale-100"
+             x-transition:leave-end="opacity-0 -translate-y-4 scale-95">
+            
+            <div class="bg-white rounded-xl shadow-2xl overflow-hidden ring-1 ring-black/5">
+                
+                <!-- Sleek Search Input Header -->
+                <div class="flex items-center px-6 py-5 border-b border-gray-100 gap-4">
+                    <!-- Boxed Search Input -->
+                    <div class="flex-1 flex items-center bg-gray-50 border border-gray-200 rounded-lg px-4 h-12 hover:border-gray-300 hover:shadow-sm transition-all duration-200 focus-within:border-gray-300 focus-within:shadow-md">
+                        <i class="fas fa-search text-gray-400 text-lg"></i>
+                        <input type="text" 
+                               placeholder="Search for products, brands and more..." 
+                               class="flex-1 ml-3 bg-transparent border-none focus:ring-0 text-gray-800 placeholder-gray-400 text-base outline-none appearance-none"
+                               x-ref="searchInput"
+                               x-model="query"
+                               @input.debounce.300ms="performSearch()"
+                               @keydown.escape="closeSearch()"
+                               x-init="$watch('searchOpen', value => { if (value) $nextTick(() => $refs.searchInput.focus()) })">
+                    </div>
+                    
+                    <!-- Close Button -->
+                    <button @click="closeSearch()" class="text-sm font-medium text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 px-3 py-2 rounded-lg transition-colors border border-transparent hover:border-gray-200">
+                        Cancel
+                    </button>
+                </div>
+
+                <!-- Content Area -->
+                <div class="flex flex-col md:flex-row h-[50vh] md:h-[60vh]">
+                    
+                    <!-- Sidebar: Filters -->
+                    <div class="hidden md:block w-64 border-r border-gray-100 bg-gray-50/50 p-5 overflow-y-auto custom-scrollbar">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Filters</h4>
+                            <button @click="clearFilters()" class="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded transition">
+                                Reset
+                            </button>
+                        </div>
+                        
+                        <div class="space-y-6">
+                            <!-- Category Filter -->
+                            <div x-show="config.categories.length > 0">
+                                <h5 class="text-xs font-bold text-gray-700 mb-2">Category</h5>
+                                <div class="space-y-1.5">
+                                    <template x-for="cat in config.categories" :key="cat.category_id">
+                                        <label class="flex items-center gap-2 cursor-pointer group">
+                                            <input type="radio" name="category" :value="cat.category_id" x-model="filters.category_id" @change="performSearch()" class="rounded border-gray-300 text-blue-600 focus:ring-0 w-3.5 h-3.5">
+                                            <span class="text-xs text-gray-600 group-hover:text-gray-900" x-text="cat.name"></span>
+                                        </label>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Brand Filter -->
+                            <div x-show="config.brands.length > 0">
+                                <h5 class="text-xs font-bold text-gray-700 mb-2">Brand</h5>
+                                <div class="space-y-1.5">
+                                    <template x-for="brand in config.brands" :key="brand.brand_id">
+                                        <label class="flex items-center gap-2 cursor-pointer group">
+                                            <input type="radio" name="brand" :value="brand.brand_id" x-model="filters.brand_id" @change="performSearch()" class="rounded border-gray-300 text-blue-600 focus:ring-0 w-3.5 h-3.5">
+                                            <span class="text-xs text-gray-600 group-hover:text-gray-900" x-text="brand.name"></span>
+                                        </label>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Price Range -->
+                            <div>
+                                <h5 class="text-xs font-bold text-gray-700 mb-2">Price</h5>
+                                <div class="space-y-1.5">
+                                    <label class="flex items-center gap-2 cursor-pointer group">
+                                        <input type="radio" name="price" value="" x-model="filters.price" @change="performSearch()" class="border-gray-300 text-blue-600 focus:ring-0 w-3.5 h-3.5">
+                                        <span class="text-xs text-gray-600 group-hover:text-gray-900">All</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer group">
+                                        <input type="radio" name="price" value="0-50" x-model="filters.price" @change="performSearch()" class="border-gray-300 text-blue-600 focus:ring-0 w-3.5 h-3.5">
+                                        <span class="text-xs text-gray-600 group-hover:text-gray-900">Under ₹50</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer group">
+                                        <input type="radio" name="price" value="50-100" x-model="filters.price" @change="performSearch()" class="border-gray-300 text-blue-600 focus:ring-0 w-3.5 h-3.5">
+                                        <span class="text-xs text-gray-600 group-hover:text-gray-900">₹50 - ₹100</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer group">
+                                        <input type="radio" name="price" value="100-10000" x-model="filters.price" @change="performSearch()" class="border-gray-300 text-blue-600 focus:ring-0 w-3.5 h-3.5">
+                                        <span class="text-xs text-gray-600 group-hover:text-gray-900">₹100+</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Main Area: Quick Links & Results -->
+                    <div class="flex-1 p-6 overflow-y-auto custom-scrollbar">
+                        
+                        <!-- Loading State -->
+                        <div x-show="loading" class="flex justify-center items-center h-40">
+                            <i class="fas fa-spinner fa-spin text-2xl text-gray-300"></i>
+                        </div>
+
+                        <!-- Results Grid -->
+                        <div x-show="!loading && results.length > 0" class="grid grid-cols-2 gap-4">
+                            <template x-for="item in results" :key="item.product_id">
+                                <a :href="'/api/user/product/' + item.product_id" class="flex items-start gap-3 p-3 rounded-xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50/30 transition group">
+                                    <div class="w-14 h-14 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 border border-gray-100">
+                                        <img :src="item.image_url" :alt="item.name" class="w-full h-full object-cover">
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <h4 class="text-xs font-bold text-gray-900 truncate group-hover:text-blue-700" x-text="item.name"></h4>
+                                        <p class="text-[10px] text-gray-500 uppercase tracking-wide mt-0.5" x-text="item.brand_name || 'Generic'"></p>
+                                        <p class="text-sm font-bold text-slate-900 mt-1" x-text="'₹' + item.price"></p>
+                                    </div>
+                                </a>
+                            </template>
+                        </div>
+
+                        <!-- Empty State -->
+                        <div x-show="!loading && results.length === 0 && query.length > 0" class="text-center py-10">
+                            <i class="fas fa-search text-gray-200 text-4xl mb-3"></i>
+                            <p class="text-gray-500 text-sm">No results found for your search.</p>
+                        </div>
+
+                        <!-- Default / Initial State (Trending) -->
+                        <div x-show="!loading && results.length === 0 && query.length === 0">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Start Searching</h4>
+                            <p class="text-xs text-gray-500">Type a product name, brand, or category to see results.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ALPINE JS - Loaded Last -->
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+
+    <!-- Post-load scripts -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const toasts = document.querySelectorAll('.toast-item');
+            toasts.forEach((toast, index) => {
+                setTimeout(() => { toast.classList.remove('translate-x-full', 'opacity-0'); }, 100 * index);
+                setTimeout(() => { dismissToast(toast); }, 4000 + (1000 * index));
+            });
+            
+            // Check if updateCartBadge is defined (it's defined in head script, but safe to check)
+            if (typeof updateCartBadge === 'function') {
+                updateCartBadge();
+            }
+        });
+
+        function dismissToast(element) {
+            element.classList.add('translate-x-full', 'opacity-0');
+            setTimeout(() => { element.remove(); }, 500);
+        }
+
+        function updateCartBadge() {
+            fetch("{{ url_for('cart.get_cart_count') }}")
+                .then(res => res.json())
+                .then(data => {
+                    const badge = document.getElementById('cart-badge');
+                    if(badge) {
+                        if (data.count > 0) {
+                            badge.innerText = data.count;
+                            badge.classList.remove('hidden');
+                        } else {
+                            badge.classList.add('hidden');
+                        }
+                    }
+                })
+                .catch(err => console.error("Error fetching cart count:", err));
+        }
+        window.addEventListener('cartUpdated', updateCartBadge);
+    </script>
+</body>
+</html>

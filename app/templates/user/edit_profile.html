@@ -1,0 +1,73 @@
+<!-- File: edit_profile.html -->
+<!-- Location: /app/templates/user/ -->
+
+{% extends "user/user_base.html" %}
+
+{% block title %}Edit Profile - Saratella{% endblock %}
+
+{% block user_content %}
+<div class="max-w-2xl mx-auto">
+    <!-- Header -->
+    <div class="mb-6 border-b border-gray-100 pb-4">
+        <h1 class="text-2xl font-bold text-gray-900">Edit Profile</h1>
+        <p class="text-xs text-gray-500 mt-1">Update your personal details below.</p>
+    </div>
+
+    <!-- Edit Form -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 bg-gray-50/50 border-b border-gray-100">
+            <h3 class="text-sm font-bold text-gray-800">Account Details</h3>
+        </div>
+        
+        <form action="{{ url_for('user.edit_profile') }}" method="POST" class="p-6 space-y-5">
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <!-- First Name -->
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">First Name</label>
+                    <input type="text" name="first_name" value="{{ user.first_name }}" class="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition bg-white" required>
+                </div>
+
+                <!-- Last Name -->
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Last Name</label>
+                    <input type="text" name="last_name" value="{{ user.last_name }}" class="w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition bg-white" required>
+                </div>
+            </div>
+
+            <!-- Email (Read Only) -->
+            <div>
+                <label class="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
+                    Email Address 
+                    <span class="ml-2 text-[10px] text-gray-400 font-normal normal-case"><i class="fas fa-lock text-[10px] mr-1"></i>Cannot be changed</span>
+                </label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="far fa-envelope text-gray-400 text-xs"></i>
+                    </div>
+                    <input type="email" value="{{ user.email }}" class="pl-9 w-full px-3 py-2.5 text-sm border border-gray-200 bg-gray-50 text-gray-500 rounded-lg cursor-not-allowed shadow-inner" disabled>
+                </div>
+            </div>
+
+            <!-- Phone -->
+            <div>
+                <label class="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wide">Phone Number</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <i class="fas fa-phone-alt text-gray-400 text-xs"></i>
+                    </div>
+                    <input type="tel" name="phone" value="{{ user.phone }}" class="pl-9 w-full px-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition bg-white" placeholder="+1 (555) 000-0000">
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-center justify-end gap-3 pt-4 border-t border-gray-100 mt-2">
+                <a href="{{ url_for('user.profile') }}" class="px-5 py-2 text-xs font-bold text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded-lg transition uppercase tracking-wide">Cancel</a>
+                <button type="submit" class="px-6 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-lg transition transform hover:-translate-y-0.5 uppercase tracking-wide">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,101 @@
+<!-- File: track.html -->
+<!-- Location: /app/templates/order/ -->
+{% extends "user/user_base.html" %}
+
+{% block title %}Track Order - Saratella{% endblock %}
+
+{% block user_content %}
+<div class="max-w-4xl mx-auto">
+    <!-- Page Header -->
+    <div class="mb-6 border-b border-gray-100 pb-4">
+        <h1 class="text-2xl font-bold text-gray-900">Track Order</h1>
+        <p class="text-xs text-gray-500 mt-1">See the status of your shipment in real-time.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        
+        <!-- Left Column: Tracking Form -->
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative overflow-hidden">
+            <h2 class="text-sm font-bold text-gray-800 mb-5 flex items-center gap-2">
+                <i class="fas fa-search-location text-blue-500"></i> Enter Order Details
+            </h2>
+
+            <form action="{{ url_for('orders.track_order') }}" method="POST" class="space-y-4 relative z-10">
+                <div>
+                    <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Order Number</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="fas fa-hashtag text-gray-400 text-xs"></i>
+                        </div>
+                        <input type="text" name="order_number" placeholder="ORD-123456789" required
+                               class="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-sm bg-white">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Email Address</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="far fa-envelope text-gray-400 text-xs"></i>
+                        </div>
+                        <input type="email" name="email" placeholder="used during checkout" required
+                               class="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-sm bg-white">
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button type="submit" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-md hover:shadow-lg transform active:scale-[0.98] flex items-center justify-center gap-2">
+                        <span>Find Order</span>
+                        <i class="fas fa-arrow-right"></i>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Right Column: Info / Help -->
+        <div class="space-y-4">
+            <!-- Shipping Info Card -->
+            <div class="bg-blue-50 rounded-xl p-6 border border-blue-100">
+                <div class="relative z-10">
+                    <h3 class="font-bold text-sm text-blue-900 mb-2">Shipping Policy</h3>
+                    <p class="text-blue-700 text-xs leading-relaxed mb-3">
+                        Standard shipping typically takes 3-5 business days. Express shipping arrives in 1-2 business days. 
+                    </p>
+                    <div class="flex items-center gap-4 text-xs font-medium text-blue-800">
+                        <div class="flex items-center gap-1.5">
+                            <i class="fas fa-check-circle"></i> Insured
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <i class="fas fa-history"></i> Real-time updates
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Help Link -->
+            <div class="bg-white border border-gray-200 rounded-xl p-5 flex items-center gap-4">
+                <div class="w-10 h-10 bg-orange-50 text-orange-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <i class="fas fa-headset text-sm"></i>
+                </div>
+                <div class="flex-1">
+                    <h4 class="font-bold text-gray-900 text-sm">Need Assistance?</h4>
+                    <p class="text-gray-500 text-xs mt-0.5">
+                        If you can't find your order details.
+                    </p>
+                </div>
+                <a href="#" class="text-orange-600 font-bold text-xs hover:underline uppercase tracking-wide">Support</a>
+            </div>
+            
+            {% if session.get('user_id') %}
+            <!-- Logged In User Hint -->
+            <div class="px-4 text-center">
+                <p class="text-xs text-gray-400">
+                    View all your past purchases in your 
+                    <a href="{{ url_for('user.dashboard') }}" class="text-gray-600 font-bold hover:underline hover:text-gray-900">Order History</a>.
+                </p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

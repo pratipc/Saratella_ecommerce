@@ -1,0 +1,264 @@
+<!-- File: category_products.html -->
+<!-- Location: /app/templates/user/ -->
+
+{% extends "user/user_base.html" %}
+
+{% block title %}{{ category_name }} - Saratella{% endblock %}
+
+{% block user_content %}
+    <!-- Inherit Alpine Scope Logic -->
+    <div x-data="categoryLogic()">
+        
+        <!-- Breadcrumb & Header -->
+        <div class="mb-8 border-b border-gray-100 pb-6">
+            <nav class="flex mb-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                <a href="{{ url_for('user.dashboard') }}" class="hover:text-gray-900 transition">Home</a>
+                <span class="mx-2">/</span>
+                <span class="text-gray-900">{{ category_name }}</span>
+            </nav>
+            <h1 class="text-3xl font-bold text-gray-900">{{ category_name }}</h1>
+            <p class="mt-1 text-xs text-gray-500 uppercase tracking-wide">Explore our curated collection.</p>
+        </div>
+
+        <!-- Product Grid -->
+        {% if products %}
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {% for product in products %}
+            <!-- Product Card -->
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col h-full group"
+                 x-data="{ 
+                    count: {{ product.cart_quantity }}, 
+                    isLoading: false,
+                    updateQty(newQty) {
+                        this.isLoading = true;
+                        if (newQty < 0) newQty = 0;
+                        fetch('{{ url_for('cart.set_product_quantity') }}', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                product_id: {{ product.product_id }}, 
+                                quantity: newQty, 
+                                price: {{ product.price }}, 
+                                variant_id: null 
+                            })
+                        })
+                        .then(res => res.json())
+                        .then(() => { this.count = newQty; this.isLoading = false; window.dispatchEvent(new Event('cartUpdated')); })
+                        .catch(() => { this.isLoading = false; });
+                    }
+                 }">
+                
+                <!-- Image -->
+                <div class="aspect-[4/3] bg-gray-100 relative overflow-hidden cursor-pointer group" onclick="window.location='{{ url_for('user.product_detail', product_id=product.product_id) }}'">
+                    <img src="{{ product.image_url if product.image_url else 'https://via.placeholder.com/400x300?text=No+Image' }}" 
+                         alt="{{ product.name }}" 
+                         class="absolute inset-0 w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ease-in-out">
+                    
+                    {% if product.cart_quantity > 0 %}
+                    <div class="absolute top-2 right-2 bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm">
+                        IN CART: <span x-text="count"></span>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Content -->
+                <div class="p-4 flex flex-col flex-1">
+                    <div class="mb-auto">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-gray-400">{{ product.brand_name if product.brand_name else 'Saratella' }}</span>
+                            <span class="text-sm font-bold text-slate-900">₹{{ "{:,.2f}".format(product.price) }}</span>
+                        </div>
+                        <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="block group">
+                            <h3 class="font-bold text-gray-900 text-sm leading-snug mb-1 group-hover:text-blue-600 transition-colors">{{ product.name }}</h3>
+                        </a>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="mt-4 pt-4 border-t border-gray-50">
+                        {% if product.has_variants %}
+                            <button @click="openVariantModal({{ product.product_id }}, '{{ product.name|replace("'", "\\'") }}', {{ product.price }}, '{{ product.image_url }}')" 
+                                    class="w-full py-2.5 bg-white border border-slate-200 hover:border-slate-900 text-slate-700 hover:text-slate-900 text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-sm">
+                                Select Options
+                            </button>
+                        {% else %}
+                            <div x-show="count === 0">
+                                <button @click="updateQty(1)" :disabled="isLoading"
+                                        class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-md hover:shadow-lg flex justify-center items-center gap-2">
+                                    <span x-show="!isLoading">Add to Cart</span>
+                                    <span x-show="isLoading"><i class="fas fa-spinner fa-spin"></i></span>
+                                </button>
+                            </div>
+                            <div x-show="count > 0" class="flex items-center justify-between bg-slate-100 rounded-lg p-1 h-9">
+                                <button @click="updateQty(count - 1)" :disabled="isLoading" class="w-8 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-minus text-[10px]"></i></button>
+                                <span class="text-xs font-bold text-slate-900" x-text="count"></span>
+                                <button @click="updateQty(count + 1)" :disabled="isLoading" class="w-8 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-plus text-[10px]"></i></button>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-gray-200 border-dashed">
+            <div class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
+                <i class="fas fa-search text-2xl"></i>
+            </div>
+            <h3 class="text-gray-900 font-bold text-sm mb-1">No products found</h3>
+            <p class="text-xs text-gray-500 mb-6">We couldn't find any items in this category.</p>
+            <a href="{{ url_for('user.dashboard') }}" class="inline-flex items-center px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-sm transform hover:-translate-y-0.5">
+                Browse All Products
+            </a>
+        </div>
+        {% endif %}
+
+        <!-- VARIANT SELECTION MODAL (Identical Logic to Dashboard) -->
+        <div x-show="modalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true" x-cloak>
+            <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity" @click="closeModal()"></div>
+
+            <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
+                <div class="relative bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:max-w-2xl w-full border border-gray-100 flex flex-col md:flex-row">
+                    
+                    <!-- Modal Image -->
+                    <div class="md:w-2/5 bg-gray-50 relative min-h-[200px] md:min-h-0">
+                        <img :src="currentVariantImage || modalProduct.image" class="absolute inset-0 w-full h-full object-cover">
+                    </div>
+
+                    <!-- Modal Content -->
+                    <div class="md:w-3/5 p-6 md:p-8 flex flex-col">
+                        <button @click="closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition">
+                            <i class="fas fa-times text-lg"></i>
+                        </button>
+
+                        <h3 class="text-xl font-bold text-gray-900 mb-1 leading-tight" x-text="modalProduct.name"></h3>
+                        <p class="text-lg font-bold text-slate-900 mb-6" x-text="formattedPrice"></p>
+
+                        <!-- Loading State -->
+                        <div x-show="modalLoading" class="py-12 text-center text-gray-300">
+                            <i class="fas fa-spinner fa-spin text-3xl"></i>
+                        </div>
+
+                        <!-- Options -->
+                        <div x-show="!modalLoading" class="space-y-5 flex-1">
+                            <template x-for="attr in attributes" :key="attr.id">
+                                <div>
+                                    <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2" x-text="attr.name"></h4>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="opt in attr.options" :key="opt.id">
+                                            <button @click="selectAttribute(attr.id, opt.id)"
+                                                    class="px-3 py-1.5 rounded-md border text-xs font-medium transition-all"
+                                                    :class="selections[attr.id] == opt.id ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'"
+                                                    x-text="opt.name">
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Add Button -->
+                        <div class="mt-8 pt-5 border-t border-gray-100">
+                            <button @click="addToCartFromModal()" 
+                                    :disabled="!isReadyToAdd || modalLoading || isOutOfStock"
+                                    class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed text-xs uppercase tracking-wide flex justify-center items-center gap-2 transform active:scale-[0.98]">
+                                <span x-text="addButtonText"></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        function categoryLogic() {
+            return {
+                modalOpen: false,
+                modalLoading: false,
+                modalProduct: { id: null, name: '', basePrice: 0, image: '' },
+                attributes: [],
+                variantsMap: {},
+                selections: {},
+                currentVariant: null,
+
+                openVariantModal(id, name, price, image) {
+                    this.modalProduct = { id, name, basePrice: price, image };
+                    this.modalOpen = true;
+                    this.modalLoading = true;
+                    this.selections = {};
+                    this.currentVariant = null;
+                    
+                    fetch(`/api/user/product/${id}/variant-data`)
+                        .then(res => res.json())
+                        .then(data => {
+                            this.attributes = data.attributes;
+                            this.variantsMap = data.variants_map;
+                            this.modalLoading = false;
+                        })
+                        .catch(() => { this.modalLoading = false; this.closeModal(); });
+                },
+
+                closeModal() { this.modalOpen = false; },
+
+                selectAttribute(attrId, valId) {
+                    this.selections[attrId] = valId;
+                    this.findVariant();
+                },
+
+                findVariant() {
+                    if (Object.keys(this.selections).length !== this.attributes.length) return;
+                    const key = Object.entries(this.selections)
+                        .sort((a, b) => a[0] - b[0])
+                        .map(([k, v]) => `${k}:${v}`)
+                        .join(',');
+                    this.currentVariant = this.variantsMap[key] || null;
+                },
+
+                get isReadyToAdd() {
+                    if (this.modalLoading) return false;
+                    return Object.keys(this.selections).length === this.attributes.length;
+                },
+
+                get isOutOfStock() {
+                    if (!this.isReadyToAdd) return false;
+                    return !this.currentVariant || this.currentVariant.stock <= 0;
+                },
+
+                get formattedPrice() {
+                    const price = this.currentVariant ? this.currentVariant.price : this.modalProduct.basePrice;
+                    return '₹' + price.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+                },
+
+                get currentVariantImage() { return this.currentVariant ? this.currentVariant.image : null; },
+
+                get addButtonText() {
+                    if (this.isOutOfStock) return 'Out of Stock';
+                    if (!this.isReadyToAdd) return 'Select Options';
+                    return 'Add to Cart';
+                },
+
+                addToCartFromModal() {
+                    const price = this.currentVariant ? this.currentVariant.price : this.modalProduct.basePrice;
+                    const variantId = this.currentVariant ? this.currentVariant.id : null;
+                    
+                    fetch("{{ url_for('cart.set_product_quantity') }}", {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            product_id: this.modalProduct.id,
+                            quantity: 1, 
+                            price: price,
+                            variant_id: variantId 
+                        })
+                    })
+                    .then(res => res.json())
+                    .then(() => {
+                        window.dispatchEvent(new Event('cartUpdated'));
+                        this.closeModal();
+                    });
+                }
+            }
+        }
+    </script>
+{% endblock %}

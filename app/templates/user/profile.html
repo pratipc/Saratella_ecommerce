@@ -1,0 +1,170 @@
+<!-- File: profile.html -->
+<!-- Location: /app/templates/user/ -->
+
+{% extends "user/user_base.html" %}
+
+{% block title %}My Profile - Saratella{% endblock %}
+
+{% block user_content %}
+<div class="max-w-5xl mx-auto">
+    
+    <!-- Profile Header Banner -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6 relative">
+        <!-- Decorative Background -->
+        <div class="h-32 bg-gradient-to-r from-slate-800 to-slate-900">
+            <!-- Optional subtle pattern overlay -->
+            <div class="w-full h-full opacity-10" style="background-image: radial-gradient(#ffffff 1px, transparent 1px); background-size: 20px 20px;"></div>
+        </div>
+        
+        <!-- User Info Bar -->
+        <div class="px-8 pb-6">
+            <!-- FIX: Removed '-mt-12' and 'items-end' from parent to prevent text overlap -->
+            <div class="flex flex-col md:flex-row items-center md:items-start gap-6">
+                
+                <!-- Avatar -->
+                <!-- FIX: Added '-mt-12' here so only the avatar pops up -->
+                <div class="relative flex-shrink-0 -mt-12">
+                    <div class="w-24 h-24 rounded-2xl bg-white p-1.5 shadow-lg">
+                        <div class="w-full h-full rounded-xl bg-slate-100 flex items-center justify-center text-3xl font-bold text-slate-400 uppercase">
+                            {{ user.first_name[0] }}
+                        </div>
+                    </div>
+                    <div class="absolute bottom-1 right-1 w-5 h-5 bg-green-500 border-4 border-white rounded-full" title="Active"></div>
+                </div>
+                
+                <!-- Name & Details -->
+                <div class="flex-1 text-center md:text-left pt-2">
+                    <h1 class="text-2xl font-bold text-gray-900">{{ user.first_name }} {{ user.last_name }}</h1>
+                    <div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-6 text-sm text-gray-500 mt-1 justify-center md:justify-start">
+                        <span class="flex items-center justify-center md:justify-start gap-1.5">
+                            <i class="far fa-envelope text-gray-400"></i> {{ user.email }}
+                        </span>
+                        <span class="hidden md:inline text-gray-300">|</span>
+                        <span class="flex items-center justify-center md:justify-start gap-1.5">
+                            <i class="fas fa-fingerprint text-gray-400"></i> Account ID: #{{ user.user_id }}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Main Action -->
+                <div class="flex-shrink-0 pt-2">
+                    <a href="{{ url_for('user.edit_profile') }}" class="inline-flex items-center px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg shadow-md hover:shadow-lg transition transform hover:-translate-y-0.5">
+                        <i class="fas fa-pen mr-2"></i> Edit Profile
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Content Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Left Column: Details -->
+        <div class="lg:col-span-2 space-y-6">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-800 text-sm flex items-center gap-2">
+                        <i class="fas fa-user-shield text-slate-400"></i> Account Information
+                    </h3>
+                </div>
+                
+                <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-y-8 gap-x-6">
+                    <!-- Phone -->
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Phone Number</label>
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
+                                <i class="fas fa-phone-alt text-xs"></i>
+                            </div>
+                            <span class="text-sm font-semibold text-gray-900">
+                                {{ user.phone if user.phone else 'Not provided' }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Email -->
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Email Address</label>
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
+                                <i class="fas fa-envelope text-xs"></i>
+                            </div>
+                            <span class="text-sm font-semibold text-gray-900">{{ user.email }}</span>
+                        </div>
+                    </div>
+
+                    <!-- Security Placeholder -->
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Password</label>
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg bg-slate-50 flex items-center justify-center text-slate-400">
+                                <i class="fas fa-lock text-xs"></i>
+                            </div>
+                            <span class="text-sm font-semibold text-gray-900">••••••••••••</span>
+                            <a href="#" class="text-xs text-blue-600 hover:underline ml-auto font-medium">Change</a>
+                        </div>
+                    </div>
+
+                    <!-- Status -->
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Membership Status</label>
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center text-green-500">
+                                <i class="fas fa-check-circle text-xs"></i>
+                            </div>
+                            <span class="text-sm font-semibold text-gray-900">Active Member</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Quick Links Hub -->
+        <div class="space-y-6">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-full">
+                <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                    <h3 class="font-bold text-gray-800 text-sm">Quick Actions</h3>
+                </div>
+                <div class="p-3 space-y-1">
+                    <!-- My Orders -->
+                    <a href="{{ url_for('user.my_orders') }}" class="flex items-center gap-4 p-3 rounded-lg hover:bg-slate-50 transition group border border-transparent hover:border-slate-100">
+                        <div class="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm group-hover:bg-blue-600 group-hover:text-white transition">
+                            <i class="fas fa-box text-sm"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-bold text-gray-900">My Orders</p>
+                            <p class="text-xs text-gray-500">Track, return, or buy again</p>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-300 text-xs group-hover:text-blue-600 transition"></i>
+                    </a>
+
+                    <!-- Addresses -->
+                    <a href="{{ url_for('user.get_addresses') }}" class="flex items-center gap-4 p-3 rounded-lg hover:bg-slate-50 transition group border border-transparent hover:border-slate-100">
+                        <div class="w-10 h-10 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shadow-sm group-hover:bg-purple-600 group-hover:text-white transition">
+                            <i class="fas fa-map-marker-alt text-sm"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-bold text-gray-900">Addresses</p>
+                            <p class="text-xs text-gray-500">Manage shipping locations</p>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-300 text-xs group-hover:text-purple-600 transition"></i>
+                    </a>
+
+                    <!-- Cart -->
+                    <a href="{{ url_for('cart.view_cart') }}" class="flex items-center gap-4 p-3 rounded-lg hover:bg-slate-50 transition group border border-transparent hover:border-slate-100">
+                        <div class="w-10 h-10 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center shadow-sm group-hover:bg-orange-600 group-hover:text-white transition">
+                            <i class="fas fa-shopping-cart text-sm"></i>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-bold text-gray-900">Shopping Cart</p>
+                            <p class="text-xs text-gray-500">View pending items</p>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-300 text-xs group-hover:text-orange-600 transition"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

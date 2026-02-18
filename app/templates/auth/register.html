@@ -1,0 +1,91 @@
+<!-- File: register.html -->
+<!-- Location: /app/templates/auth/ -->
+{% extends 'base.html' %}
+
+{% block title %}Register - Saratella Online{% endblock %}
+
+{% block content %}
+<!-- Removed outer full-screen wrappers. Base.html handles alignment. -->
+<div class="relative w-full max-w-lg mx-auto z-10">
+    <!-- Glassmorphism Card -->
+    <div class="bg-white/20 backdrop-blur-xl py-8 px-4 shadow-2xl rounded-2xl sm:px-10 border border-white/20">
+        
+        <!-- Header -->
+        <div class="mb-8 text-center">
+            <h1 class="text-4xl font-extrabold text-white tracking-wide">Saratella Online</h1>
+            <h2 class="mt-4 text-2xl font-bold text-gray-100">
+                Create an Account
+            </h2>
+            <p class="mt-2 text-sm text-gray-300">
+                Join us to enjoy seamless shopping and exclusive offers.
+            </p>
+        </div>
+
+        <form class="space-y-5" action="{{ url_for('auth.register') }}" method="POST">
+            
+            <!-- Name Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="first_name" class="block text-sm font-medium text-gray-200">First Name</label>
+                    <div class="mt-1">
+                        <input id="first_name" name="first_name" type="text" required
+                               class="appearance-none block w-full px-4 py-3 border border-gray-400/50 rounded-lg shadow-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent sm:text-sm bg-white/90 text-gray-900 transition">
+                    </div>
+                </div>
+                <div>
+                    <label for="last_name" class="block text-sm font-medium text-gray-200">Last Name</label>
+                    <div class="mt-1">
+                        <input id="last_name" name="last_name" type="text"
+                               class="appearance-none block w-full px-4 py-3 border border-gray-400/50 rounded-lg shadow-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent sm:text-sm bg-white/90 text-gray-900 transition">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Email -->
+            <div>
+                <label for="email" class="block text-sm font-medium text-gray-200">Email Address</label>
+                <div class="mt-1">
+                    <input id="email" name="email" type="email" autocomplete="email" required
+                           class="appearance-none block w-full px-4 py-3 border border-gray-400/50 rounded-lg shadow-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent sm:text-sm bg-white/90 text-gray-900 transition">
+                </div>
+            </div>
+
+            <!-- Phone -->
+            <div>
+                <label for="phone" class="block text-sm font-medium text-gray-200">Phone Number (Optional)</label>
+                <div class="mt-1">
+                    <input id="phone" name="phone" type="tel"
+                           class="appearance-none block w-full px-4 py-3 border border-gray-400/50 rounded-lg shadow-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent sm:text-sm bg-white/90 text-gray-900 transition">
+                </div>
+            </div>
+
+            <!-- Password -->
+            <div>
+                <label for="password" class="block text-sm font-medium text-gray-200">Password</label>
+                <div class="mt-1">
+                    <input id="password" name="password" type="password" autocomplete="new-password" required
+                           class="appearance-none block w-full px-4 py-3 border border-gray-400/50 rounded-lg shadow-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent sm:text-sm bg-white/90 text-gray-900 transition">
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <div>
+                <button type="submit"
+                        class="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-lg text-sm font-bold text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all transform hover:-translate-y-0.5">
+                    Create Account
+                </button>
+            </div>
+        </form>
+
+        <!-- Footer Links -->
+        <div class="mt-6 text-center text-sm">
+            <p class="text-gray-300">
+                Already have an account?
+                <a href="{{ url_for('auth.login') }}" class="font-bold text-white hover:text-blue-200 hover:underline transition">
+                    Sign in here
+                </a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

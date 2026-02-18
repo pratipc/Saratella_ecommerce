@@ -1,0 +1,51 @@
+<!-- File: shop_by_category.html -->
+<!-- Location: /app/templates/user/ -->
+
+{% extends "user/user_base.html" %}
+
+{% block title %}Shop by Category - Saratella{% endblock %}
+
+{% block user_content %}
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="mb-8 border-b border-gray-100 pb-4">
+        <h1 class="text-2xl font-bold text-gray-900">Shop by Category</h1>
+        <p class="mt-1 text-xs text-gray-500 uppercase tracking-wide">Explore our wide range of collections.</p>
+    </div>
+
+    <!-- Category Grid -->
+    {% if categories %}
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+        {% for cat in categories %}
+        <a href="{{ url_for('user.category_view', category_id=cat.category_id) }}" 
+           class="group flex flex-col items-center focus:outline-none p-4 rounded-xl hover:bg-gray-50 transition duration-200">
+            
+            <!-- Icon/Image Container -->
+            <div class="w-32 h-32 rounded-2xl bg-white border border-gray-200 shadow-sm flex items-center justify-center mb-3 overflow-hidden relative transition-all duration-300 transform group-hover:-translate-y-1 group-hover:shadow-md group-hover:border-blue-200">
+                {% if cat.image_url %}
+                    <img src="{{ cat.image_url }}" alt="{{ cat.name }}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                {% else %}
+                    <div class="w-full h-full bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+                        <i class="fas fa-layer-group text-3xl text-gray-300 group-hover:text-blue-500 transition-colors"></i>
+                    </div>
+                {% endif %}
+                <!-- Hover Overlay -->
+                <div class="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            </div>
+            
+            <!-- Smaller Text -->
+            <span class="text-xs font-bold text-gray-700 group-hover:text-blue-700 transition-colors text-center leading-tight">
+                {{ cat.name }}
+            </span>
+            <span class="text-[10px] text-gray-400 mt-0.5 uppercase tracking-wide group-hover:text-blue-400 transition-colors">View Products</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-20 bg-gray-50 rounded-xl border border-gray-200 border-dashed">
+        <i class="fas fa-th-large text-gray-300 text-4xl mb-3"></i>
+        <p class="text-gray-500 text-sm">No categories found.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

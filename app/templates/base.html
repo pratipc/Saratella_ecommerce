@@ -1,0 +1,81 @@
+<!-- File: base.html -->
+<!-- Location: /app/templates/ -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Saratella Online{% endblock %}</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Link to your static CSS (for custom overrides) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        /* Custom background style to ensure it covers nicely */
+        .bg-custom {
+            /* Updated to use your uploaded image */
+            background-image: url("{{ url_for('static', filename='images/shopping_bag_background.jpg') }}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed; /* Parallax-like effect */
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden font-sans text-gray-900 bg-gray-900">
+
+    <!-- Background Layer -->
+    <div class="absolute inset-0 bg-custom z-0">
+        <!-- Optional Overlay to make text readable -->
+        <div class="absolute inset-0 bg-black bg-opacity-40"></div>
+    </div>
+
+    <!-- Scrollable Content Wrapper -->
+    <div class="absolute inset-0 z-10 overflow-y-auto">
+        <div class="min-h-full flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8">
+            
+            <!-- Content Container -->
+            <div class="w-full max-w-7xl mx-auto">
+                <!-- Flash Messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        <div class="mb-8 space-y-2 max-w-md mx-auto">
+                            {% for category, message in messages %}
+                                <div class="p-4 rounded-lg shadow-lg backdrop-blur-md border-l-4 text-white
+                                    {{ 'bg-red-500/80 border-red-700' if category == 'error' else 'bg-blue-500/80 border-blue-700' }}">
+                                    {{ message }}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                {% endwith %}
+
+                <!-- Main Page Content -->
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+        <!-- Toast Logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const toasts = document.querySelectorAll('.toast-item');
+            toasts.forEach((toast, index) => {
+                setTimeout(() => { toast.classList.remove('translate-x-full', 'opacity-0'); }, 100 * index);
+                setTimeout(() => { dismissToast(toast); }, 4000 + (1000 * index));
+            });
+        });
+        function dismissToast(element) {
+            element.classList.add('translate-x-full', 'opacity-0');
+            setTimeout(() => { element.remove(); }, 500);
+        }
+
+</body>
+</html>
