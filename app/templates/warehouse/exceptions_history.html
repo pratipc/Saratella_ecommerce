@@ -1,0 +1,135 @@
+<!-- File: exceptions_history.html -->
+<!-- Location: /app/templates/warehouse/ -->
+
+{% extends "warehouse/warehouse_base.html" %}
+
+{% block title %}Audit Log - Warehouse Portal{% endblock %}
+
+{% block warehouse_content %}
+<script>
+    // Safely inject the data directly from Python/Jinja!
+    window.initialHistory = {{ exceptions | default([]) | tojson | safe }};
+
+    function exceptionsHistoryLogic() {
+        return {
+            // Load the data instantly from Jinja, no fetching needed
+            exceptions: window.initialHistory || []
+        }
+    }
+</script>
+
+<div x-data="exceptionsHistoryLogic()">
+    
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Resolution Audit Log</h1>
+        <p class="mt-2 text-sm text-gray-500">
+            A read-only history of all inventory discrepancies and short picks resolved by warehouse management.
+        </p>
+    </div>
+
+    <!-- Main Workspace Area -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px] relative">
+        
+        <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+            <h2 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                <i class="fas fa-clipboard-check text-slate-500"></i> Historical Records
+            </h2>
+        </div>
+
+        <div class="overflow-x-auto w-full" x-show="exceptions.length > 0" x-cloak>
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-white">
+                    <tr>
+                        <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Product & Discrepancy</th>
+                        <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Timeline & Personnel</th>
+                        <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Manager Actions</th>
+                        <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Notes / Root Cause</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-100">
+                    <template x-for="exc in exceptions" :key="exc.exception_id">
+                        <tr class="hover:bg-slate-50/50 transition-colors">
+                            
+                            <!-- Product & Discrepancy -->
+                            <td class="px-6 py-4 align-top w-1/4">
+                                <p class="text-sm font-bold text-gray-900 mb-0.5" x-text="exc.product_name"></p>
+                                <p class="text-[10px] text-gray-500 font-mono mb-3" x-text="(exc.variant_name || 'Standard') + ' | SKU: ' + exc.sku"></p>
+                                
+                                <div class="inline-flex items-center gap-2 bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                                    <div class="text-center">
+                                        <p class="text-[9px] font-bold text-gray-400 uppercase">Expected</p>
+                                        <p class="text-sm font-bold text-gray-700" x-text="exc.expected_qty"></p>
+                                    </div>
+                                    <i class="fas fa-arrow-right text-gray-300 text-[8px]"></i>
+                                    <div class="text-center">
+                                        <p class="text-[9px] font-bold text-red-500 uppercase">Worker Found</p>
+                                        <p class="text-sm font-bold text-red-600" x-text="exc.actual_picked_qty"></p>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <!-- Timeline & Personnel -->
+                            <td class="px-6 py-4 align-top w-1/4">
+                                <div class="mb-3">
+                                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Incident Report</p>
+                                    <p class="text-xs text-gray-700">Order: <span class="font-mono font-bold text-blue-600" x-text="exc.order_number"></span></p>
+                                    <p class="text-xs text-gray-500 mt-0.5">By: <span class="font-medium text-gray-800" x-text="exc.worker_name"></span></p>
+                                </div>
+                                
+                                <div>
+                                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Resolution Audit</p>
+                                    <p class="text-xs text-gray-700">By: <strong class="text-gray-900" x-text="exc.manager_name || 'System'"></strong></p>
+                                    <p class="text-[10px] text-gray-500 mt-0.5" x-text="exc.formatted_date"></p>
+                                </div>
+                            </td>
+
+                            <!-- Decisions -->
+                            <td class="px-6 py-4 align-top w-1/4">
+                                <div class="space-y-3">
+                                    <div>
+                                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Inventory Override</p>
+                                        <div class="flex items-center gap-2">
+                                            <span class="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs font-bold border border-slate-200">
+                                                <i class="fas fa-boxes text-[10px]"></i> <span x-text="exc.inventory_action"></span>
+                                            </span>
+                                            <span class="text-[10px] text-gray-500 font-mono">(Count: <span x-text="exc.manager_count"></span>)</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div>
+                                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Customer Action</p>
+                                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold border"
+                                              :class="exc.order_action === 'backorder' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-red-50 text-red-700 border-red-200'">
+                                            <i class="fas" :class="exc.order_action === 'backorder' ? 'fa-history' : 'fa-ban'"></i> 
+                                            <span class="capitalize" x-text="exc.order_action"></span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <!-- Notes -->
+                            <td class="px-6 py-4 align-top w-1/4 text-sm text-gray-600">
+                                <div class="mb-2">
+                                    <span class="text-[10px] font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded uppercase tracking-wider border border-gray-200 shadow-sm" x-text="exc.reason_code || 'Unspecified'"></span>
+                                </div>
+                                <p class="italic bg-gray-50 p-2 rounded text-xs border border-gray-100" x-text="exc.resolution_notes || 'No additional notes provided.'"></p>
+                            </td>
+
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Empty State -->
+        <div x-show="exceptions.length === 0" class="p-16 flex flex-col items-center justify-center text-center h-full my-auto" x-cloak>
+            <div class="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 text-slate-400">
+                <i class="fas fa-file-signature text-2xl"></i>
+            </div>
+            <h3 class="text-sm font-bold text-gray-900 mb-1">No audit history found.</h3>
+            <p class="text-sm text-gray-500 max-w-sm">There are no resolved exceptions on record yet.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

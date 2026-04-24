@@ -1,0 +1,801 @@
+<!-- File: product_edit.html -->
+<!-- Location: /app/templates/admin/ -->
+
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Edit Product - Saratella Admin{% endblock %}
+
+{% block admin_content %}
+<script>
+    window.dbStores = {{ stores | default([]) | tojson | safe }};
+    window.dbCategories = {{ categories | default([]) | tojson | safe }};
+    window.dbBrands = {{ brands | default([]) | tojson | safe }};
+    window.editData = {{ edit_data | default({}) | tojson | safe }};
+    
+    function productEditLogic() {
+        return {
+            isSubmitting: false,
+            
+            // NEW: Track the initial DB state so we know if it was created as a Variant product
+            initial_has_variants: false,
+            
+            categories: window.dbCategories || [], brands: window.dbBrands || [],
+            isSelectCatModalOpen: false, isSelectBrandModalOpen: false, isSelectStoreModalOpen: false,
+            catSearchQuery: '', brandSearchQuery: '', storeSearchQuery: '',
+            mediaFiles: [], 
+            
+            form: {
+                product_id: null, name: '', short_description: '', full_description: '', sku: '',
+                category_id: '', brand_id: '', gtin: '', manufacturer_part_number: '', admin_comment: '',
+                specifications: '', warranty_info: '', manufacturer_info: '',
+                price: '', old_price: '', product_cost: '', disable_buy_button: false, call_for_price: false,
+                weight: 0, length: 0, width: 0, height: 0, 
+                case_pack_quantity: 1, minimum_cart_qty: 1, maximum_cart_qty: 10000, not_returnable: false,
+                volume_pricing: [], inventory: [],
+                is_published: true, has_variants: false,
+                attributes: [], variants: [],
+                deleted_variants: [], deleted_media: []
+            },
+
+            newAttributeName: '', newAttributeOptions: '',
+            isVariantMediaModalOpen: false, activeVariantMediaIndex: null,
+
+            init() {
+                if (!window.editData || !window.editData.master) return;
+                
+                const master = window.editData.master;
+                this.form.product_id = master.sku_id;
+                this.form.name = master.name || '';
+                this.form.sku = master.sku || '';
+                this.form.price = master.price || '';
+                this.form.category_id = master.category_id || '';
+                this.form.brand_id = master.brand_id || '';
+                this.form.gtin = master.gtin || '';
+                this.form.manufacturer_part_number = master.manufacturer_part_number || '';
+                this.form.short_description = master.description || '';
+                this.form.full_description = master.product_definition || '';
+                this.form.admin_comment = master.admin_comment || '';
+                this.form.specifications = master.specifications || '';
+                this.form.warranty_info = master.warranty_info || '';
+                this.form.manufacturer_info = master.manufacturer_info || '';
+                this.form.old_price = master.old_price || '';
+                this.form.product_cost = master.product_cost || '';
+                
+                this.form.disable_buy_button = master.disable_buy_button === 1;
+                this.form.call_for_price = master.call_for_price === 1;
+                this.form.not_returnable = master.not_returnable === 1;
+                this.form.is_published = master.is_active === 1;
+                
+                this.form.weight = master.weight || 0;
+                this.form.length = master.length || 0;
+                this.form.width = master.width || 0;
+                this.form.height = master.height || 0;
+                this.form.case_pack_quantity = master.case_pack_quantity || 1;
+                this.form.minimum_cart_qty = master.minimum_cart_qty || 1;
+                this.form.maximum_cart_qty = master.maximum_cart_qty || 10000;
+
+                this.form.volume_pricing = window.editData.volume_pricing || [];
+
+                if (window.editData.media) {
+                    const globalMedia = window.editData.media.filter(m => m.variant_id === null);
+                    this.mediaFiles = globalMedia.map(m => ({
+                        id: m.media_id, previewUrl: m.media_url, isPrimary: m.is_primary === 1, type: m.media_type, isExisting: true
+                    }));
+                }
+
+                if (window.editData.variants && window.editData.variants.length > 0) {
+                    this.form.has_variants = true;
+                    // NEW: Set the initial state to true so the toggle switch remains visible!
+                    this.initial_has_variants = true;
+                    
+                    const attrMap = {};
+                    if (window.editData.variant_attrs) {
+                        window.editData.variant_attrs.forEach(va => {
+                            if (!attrMap[va.attribute_name]) attrMap[va.attribute_name] = new Set();
+                            attrMap[va.attribute_name].add(va.attribute_value);
+                        });
+                        for (const [key, valSet] of Object.entries(attrMap)) {
+                            this.form.attributes.push({ name: key, options: Array.from(valSet) });
+                        }
+                    }
+
+                    this.form.variants = window.editData.variants.map(v => {
+                        const variantMedia = window.editData.media ? window.editData.media.filter(m => m.variant_id === v.variant_id) : [];
+                        return {
+                            id: v.variant_id, combination: v.combination_key, sku: v.sku, price: v.price,
+                            mediaFiles: variantMedia.map(m => ({
+                                id: m.media_id, previewUrl: m.media_url, isPrimary: m.is_primary === 1, type: m.media_type, isExisting: true
+                            }))
+                        };
+                    });
+                }
+
+                if (window.editData.inventory && window.dbStores) {
+                    const storesSet = new Set(window.editData.inventory.map(i => i.store_id));
+                    storesSet.forEach(s_id => {
+                        const storeData = window.dbStores.find(s => s.store_id === s_id);
+                        if(!storeData) return;
+
+                        let newInv = {
+                            store_id: s_id, store_name: storeData.name || storeData.store_name, code: storeData.code || storeData.store_code,
+                            quantity: 0, threshold: 0, variant_stocks: {}
+                        };
+
+                        const invRecords = window.editData.inventory.filter(i => i.store_id === s_id);
+                        if (!this.form.has_variants) {
+                            const baseRec = invRecords.find(i => i.variant_id === null);
+                            if(baseRec) { newInv.quantity = baseRec.quantity; newInv.threshold = baseRec.low_stock_threshold; }
+                        } else {
+                            this.form.variants.forEach(v => {
+                                const vRec = invRecords.find(i => i.variant_id === v.id);
+                                newInv.variant_stocks[v.combination] = { quantity: vRec ? vRec.quantity : 0, threshold: vRec ? vRec.low_stock_threshold : 0 };
+                            });
+                        }
+                        this.form.inventory.push(newInv);
+                    });
+                }
+            },
+
+            addAttribute() {
+                if (!this.newAttributeName) return;
+                let opts = this.newAttributeOptions.split(',').map(s => s.trim()).filter(s => s);
+                if (opts.length === 0) return;
+                this.form.attributes.push({ name: this.newAttributeName.trim(), options: opts });
+                this.newAttributeName = ''; this.newAttributeOptions = '';
+                this.generateVariantCombinations();
+            },
+            
+            removeAttribute(index) {
+                this.form.attributes.splice(index, 1);
+                this.generateVariantCombinations();
+            },
+
+            generateVariantCombinations() {
+                if (this.form.attributes.length === 0) { this.form.variants = []; return; }
+                const combine = (arr) => arr.reduce((a, b) => a.flatMap(d => b.map(e => [d, e].flat())));
+                const optionsArrays = this.form.attributes.map(a => a.options);
+                const combinations = optionsArrays.length === 1 ? optionsArrays[0].map(o => [o]) : combine(optionsArrays);
+                
+                const baseSku = this.form.sku || 'SKU';
+                const basePrice = this.form.price || 0;
+                const oldVariants = [...this.form.variants];
+
+                this.form.variants = combinations.map(combo => {
+                    const comboArray = Array.isArray(combo) ? combo : [combo];
+                    const comboName = comboArray.join(' - ');
+                    const suffix = comboArray.map(c => c.substring(0, 3).toUpperCase()).join('-');
+                    const existing = oldVariants.find(v => v.combination === comboName);
+                    return {
+                        id: existing ? existing.id : null, combination: comboName,
+                        attributes: this.form.attributes.map((a, i) => ({ name: a.name, value: comboArray[i] })),
+                        sku: existing ? existing.sku : `${baseSku}-${suffix}`, price: existing ? existing.price : basePrice,
+                        mediaFiles: existing && existing.mediaFiles ? existing.mediaFiles : [] 
+                    };
+                });
+
+                this.form.inventory.forEach(inv => {
+                    if (!inv.variant_stocks) inv.variant_stocks = {};
+                    const newVStocks = {};
+                    this.form.variants.forEach(v => { newVStocks[v.combination] = inv.variant_stocks[v.combination] || { quantity: 1, threshold: 1 }; });
+                    inv.variant_stocks = newVStocks;
+                });
+            },
+
+            handleFileSelect(event) {
+                const files = Array.from(event.target.files);
+                files.forEach(file => {
+                    if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+                        this.mediaFiles.push({ file: file, previewUrl: URL.createObjectURL(file), isPrimary: this.mediaFiles.length === 0, type: file.type.startsWith('video/') ? 'video' : 'image', isExisting: false });
+                    }
+                });
+                event.target.value = '';
+            },
+            
+            removeMedia(index) {
+                const removed = this.mediaFiles.splice(index, 1)[0];
+                if(removed.isExisting) { this.form.deleted_media.push(removed.id); }
+                else { URL.revokeObjectURL(removed.previewUrl); }
+                if (removed.isPrimary && this.mediaFiles.length > 0) this.mediaFiles[0].isPrimary = true;
+            },
+            
+            setPrimaryMedia(index) {
+                this.mediaFiles.forEach(m => m.isPrimary = false);
+                this.mediaFiles[index].isPrimary = true;
+            },
+
+            openVariantMediaModal(index) { this.activeVariantMediaIndex = index; this.isVariantMediaModalOpen = true; },
+            closeVariantMediaModal() { this.isVariantMediaModalOpen = false; setTimeout(() => { this.activeVariantMediaIndex = null; }, 300); },
+            
+            handleVariantFileSelect(event) {
+                if (this.activeVariantMediaIndex === null) return;
+                const variant = this.form.variants[this.activeVariantMediaIndex];
+                const files = Array.from(event.target.files);
+                files.forEach(file => {
+                    if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+                        variant.mediaFiles.push({ file: file, previewUrl: URL.createObjectURL(file), isPrimary: variant.mediaFiles.length === 0, type: file.type.startsWith('video/') ? 'video' : 'image', isExisting: false });
+                    }
+                });
+                event.target.value = '';
+            },
+            
+            removeVariantMedia(mIndex) {
+                if (this.activeVariantMediaIndex === null) return;
+                const variant = this.form.variants[this.activeVariantMediaIndex];
+                const removed = variant.mediaFiles.splice(mIndex, 1)[0];
+                if(removed.isExisting) { this.form.deleted_media.push(removed.id); }
+                else { URL.revokeObjectURL(removed.previewUrl); }
+                if (removed.isPrimary && variant.mediaFiles.length > 0) variant.mediaFiles[0].isPrimary = true;
+            },
+            setPrimaryVariantMedia(mIndex) {
+                if (this.activeVariantMediaIndex === null) return;
+                const variant = this.form.variants[this.activeVariantMediaIndex];
+                variant.mediaFiles.forEach(m => m.isPrimary = false);
+                variant.mediaFiles[mIndex].isPrimary = true;
+            },
+
+            addVolumeTier() { this.form.volume_pricing.push({ min_quantity: 10, price: '' }); },
+            removeVolumeTier(index) { this.form.volume_pricing.splice(index, 1); },
+
+            get filteredCategories() { return this.categories.filter(c => (c.name || '').toLowerCase().includes(this.catSearchQuery.toLowerCase())); },
+            get filteredBrands() { return this.brands.filter(b => (b.name || '').toLowerCase().includes(this.brandSearchQuery.toLowerCase())); },
+            get unassignedStores() { return window.dbStores.filter(s => !this.form.inventory.some(inv => inv.store_id === s.store_id) && ((s.name || s.store_name || '').toLowerCase().includes(this.storeSearchQuery.toLowerCase()) || (s.code || s.store_code || '').toLowerCase().includes(this.storeSearchQuery.toLowerCase()))); },
+            get selectedCategoryName() { const c = this.categories.find(c => c.category_id == this.form.category_id); return c ? c.name : 'Select a category...'; },
+            get selectedBrandName() { const b = this.brands.find(b => b.brand_id == this.form.brand_id); return b ? b.name : 'Select a brand...'; },
+
+            openSelectCatModal() { this.catSearchQuery = ''; this.isSelectCatModalOpen = true; },
+            openSelectBrandModal() { this.brandSearchQuery = ''; this.isSelectBrandModalOpen = true; },
+            openSelectStoreModal() { this.storeSearchQuery = ''; this.isSelectStoreModalOpen = true; },
+            selectCategory(id) { this.form.category_id = id; this.isSelectCatModalOpen = false; },
+            selectBrand(id) { this.form.brand_id = id; this.isSelectBrandModalOpen = false; },
+            assignStore(store) { 
+                let v_stocks = {}; this.form.variants.forEach(v => { v_stocks[v.combination] = { quantity: 1, threshold: 1 }; });
+                this.form.inventory.push({ store_id: store.store_id, store_name: store.name || store.store_name, code: store.code || store.store_code, quantity: 1, threshold: 1, variant_stocks: v_stocks }); 
+                this.isSelectStoreModalOpen = false; 
+            },
+            unassignStore(index) { this.form.inventory.splice(index, 1); },
+
+            async submitForm() {
+                if (!this.form.name || !this.form.sku || !this.form.category_id || !this.form.brand_id) {
+                    if (typeof showToast === 'function') showToast("Please fill out all required basic info fields.", "error");
+                    return;
+                }
+                if (this.form.has_variants && this.form.variants.length === 0) {
+                    if (typeof showToast === 'function') showToast("Please configure at least one variant, or turn off Product Variants.", "error");
+                    return;
+                }
+
+                this.isSubmitting = true;
+                
+                let originalVariantIds = [];
+                if (window.editData && window.editData.variants) {
+                    originalVariantIds = window.editData.variants.map(v => v.variant_id);
+                }
+                const currentVariantIds = this.form.variants.map(v => v.id).filter(id => id !== null);
+                const deletedVariants = originalVariantIds.filter(id => !currentVariantIds.includes(id));
+
+                let formData = new FormData();
+                let globalMediaMeta = [];
+                
+                this.mediaFiles.forEach((m, index) => {
+                    if (!m.isExisting && m.file) {
+                        const key = `global_media_${index}`;
+                        formData.append(key, m.file);
+                        globalMediaMeta.push({ key: key, is_primary: m.isPrimary, type: m.type });
+                    } else if (m.isExisting) {
+                        globalMediaMeta.push({ id: m.id, is_primary: m.isPrimary });
+                    }
+                });
+
+                let variantMediaMeta = [];
+                if (this.form.has_variants) {
+                    this.form.variants.forEach((v, vIdx) => {
+                        v.mediaFiles.forEach((m, mIdx) => {
+                            if (!m.isExisting && m.file) {
+                                const key = `variant_media_${vIdx}_${mIdx}`;
+                                formData.append(key, m.file);
+                                variantMediaMeta.push({ key: key, variant_combo: v.combination, is_primary: m.isPrimary, type: m.type });
+                            } else if (m.isExisting) {
+                                variantMediaMeta.push({ id: m.id, variant_combo: v.combination, is_primary: m.isPrimary });
+                            }
+                        });
+                    });
+                }
+
+                const payload = {
+                    name: this.form.name, sku: this.form.sku, price: this.form.price,
+                    category_id: this.form.category_id, brand_id: this.form.brand_id,
+                    gtin: this.form.gtin, manufacturer_part_number: this.form.manufacturer_part_number,
+                    description: this.form.short_description, full_description: this.form.full_description,
+                    admin_comment: this.form.admin_comment, old_price: this.form.old_price, product_cost: this.form.product_cost,
+                    disable_buy_button: this.form.disable_buy_button, call_for_price: this.form.call_for_price, not_returnable: this.form.not_returnable,
+                    weight: this.form.weight, length: this.form.length, width: this.form.width, height: this.form.height,
+                    case_pack_quantity: this.form.case_pack_quantity, minimum_cart_qty: this.form.minimum_cart_qty, maximum_cart_qty: this.form.maximum_cart_qty,
+                    specifications: this.form.specifications, warranty_info: this.form.warranty_info, manufacturer_info: this.form.manufacturer_info,
+                    volume_pricing: this.form.volume_pricing, inventory: this.form.inventory,
+                    is_active: this.form.is_published, has_variants: this.form.has_variants,
+                    variants: this.form.variants.map(v => ({ id: v.id, sku: v.sku, price: v.price, name: v.combination })),
+                    deleted_variants: deletedVariants,
+                    deleted_media: this.form.deleted_media,
+                    global_media_meta: globalMediaMeta,
+                    variant_media_meta: variantMediaMeta
+                };
+
+                formData.append('data', JSON.stringify(payload));
+
+                try {
+                    const res = await fetch(`/admin/api/catalog/products/${this.form.product_id}`, {
+                        method: 'PUT',
+                        body: formData 
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to update product.");
+                    
+                    if (typeof showToast === 'function') showToast("Product saved completely!", "success");
+                    setTimeout(() => window.location.reload(), 800);
+                    
+                } catch(err) {
+                    if (typeof showToast === 'function') showToast(err.message, "error");
+                    this.isSubmitting = false;
+                }
+            }
+        }
+    }
+</script>
+
+<div x-data="productEditLogic()" class="max-w-5xl mx-auto pb-10">
+
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 sticky top-16 lg:top-0 z-30 bg-[#f8fafc] pt-2 pb-4 lg:pt-6 lg:pb-5 border-b border-gray-200">
+        <div>
+            <div class="flex items-center gap-2 text-xs font-bold text-blue-600 uppercase tracking-widest mb-2">
+                <a href="{{ url_for('admin.catalog_list') }}" class="hover:underline"><i class="fas fa-arrow-left"></i> Back to Catalog</a>
+            </div>
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Edit Product</h1>
+        </div>
+        
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-4 bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
+                <div class="flex items-center gap-2 relative group cursor-help">
+                    <i class="fas fa-circle text-[8px] transition-colors" :class="form.is_published ? 'text-emerald-500' : 'text-gray-400'"></i>
+                    <span class="text-sm font-bold transition-colors" :class="form.is_published ? 'text-emerald-600' : 'text-gray-500'" x-text="form.is_published ? 'Published' : 'Draft'"></span>
+                </div>
+                <div class="h-5 w-px bg-gray-200"></div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" x-model="form.is_published" class="sr-only peer">
+                    <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                </label>
+            </div>
+
+            <button @click="submitForm()" :disabled="isSubmitting" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded-lg text-sm font-bold shadow-md transition disabled:opacity-50 flex items-center gap-2 h-10">
+                <span x-show="!isSubmitting"><i class="fas fa-save"></i> Save Changes</span>
+                <span x-show="isSubmitting"><i class="fas fa-spinner fa-spin"></i> Saving...</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- VARIANT TOGGLE (VISIBLE BUT LOCKED IF PRODUCT WAS CREATED AS SIMPLE) -->
+    <div class="mt-6 bg-white border rounded-xl p-4 shadow-sm flex items-center justify-between transition-colors" 
+         :class="initial_has_variants ? 'border-blue-200' : 'border-gray-200 bg-gray-50/50'">
+        <div>
+            <h3 class="font-bold text-gray-900 flex items-center gap-2">
+                Product Variants
+                <span x-show="!initial_has_variants" class="bg-gray-200 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider shadow-inner" x-cloak><i class="fas fa-lock mr-1"></i> Locked</span>
+            </h3>
+            
+            <template x-if="initial_has_variants">
+                <p class="text-xs text-gray-500 mt-1">This product uses variants. Turning this off will permanently delete all configured options.</p>
+            </template>
+            
+            <template x-if="!initial_has_variants">
+                <p class="text-xs text-gray-500 mt-1">
+                    <span class="text-red-500 font-bold">Cannot change product type once created.</span> 
+                    Create a new product with variants and disable this one instead.
+                </p>
+            </template>
+        </div>
+        <label class="relative inline-flex items-center" :class="initial_has_variants ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'">
+            <input type="checkbox" x-model="form.has_variants" class="sr-only peer" :disabled="!initial_has_variants">
+            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+        </label>
+    </div>
+
+    <div class="mt-6 space-y-6">
+        
+        <!-- ACCORDION: BASIC INFO -->
+        <div x-data="{ expanded: true }" class="bg-white rounded-xl shadow-sm border border-gray-200">
+            <button @click="expanded = !expanded" class="w-full px-6 py-4 flex items-center justify-between bg-gray-50/50 border-b border-gray-100 hover:bg-gray-100 transition focus:outline-none rounded-t-xl">
+                <h3 class="font-bold text-gray-900 flex items-center gap-2"><i class="fas fa-info-circle text-blue-500 w-5 text-center"></i> Basic info</h3>
+                <i class="fas fa-chevron-down text-gray-400 transition-transform" :class="expanded ? 'rotate-180' : ''"></i>
+            </button>
+            <div x-show="expanded" x-collapse class="p-6 space-y-6 rounded-b-xl">
+                <!-- Name & SKU -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">Product name <span class="text-red-500">*</span></label>
+                        <input type="text" x-model="form.name" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">Base SKU <span class="text-red-500">*</span></label>
+                        <input type="text" x-model="form.sku" @input="generateVariantCombinations()" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition font-mono uppercase">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <label class="text-xs font-bold text-gray-700">Category <span class="text-red-500">*</span></label>
+                        </div>
+                        <button type="button" @click="openSelectCatModal()" class="w-full px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition text-left flex justify-between items-center shadow-sm">
+                            <span x-text="selectedCategoryName" :class="form.category_id ? 'text-gray-900 font-bold' : 'text-gray-500'"></span><i class="fas fa-chevron-down text-[10px] text-gray-400"></i>
+                        </button>
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center mb-2">
+                            <label class="text-xs font-bold text-gray-700">Brand / Manufacturer <span class="text-red-500">*</span></label>
+                        </div>
+                        <button type="button" @click="openSelectBrandModal()" class="w-full px-4 py-2 border border-gray-300 bg-white hover:bg-gray-50 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition text-left flex justify-between items-center shadow-sm">
+                            <span x-text="selectedBrandName" :class="form.brand_id ? 'text-gray-900 font-bold' : 'text-gray-500'"></span><i class="fas fa-chevron-down text-[10px] text-gray-400"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">GTIN (Global Trade Item Number)</label>
+                        <input type="text" x-model="form.gtin" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">Manufacturer Part Number (MPN)</label>
+                        <input type="text" x-model="form.manufacturer_part_number" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition font-mono">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-2">Short description</label>
+                    <textarea x-model="form.short_description" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-2">Full description (Definition)</label>
+                    <textarea x-model="form.full_description" rows="5" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition"></textarea>
+                </div>
+                
+                <div class="pt-4 border-t border-gray-100">
+                    <label class="block text-xs font-bold text-gray-700 mb-2 flex items-center"><i class="fas fa-lock text-gray-400 mr-2"></i> Internal Admin Comment</label>
+                    <textarea x-model="form.admin_comment" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACCORDION: VARIANT ENGINE -->
+        <div x-show="form.has_variants" x-data="{ expanded: true }" class="bg-white rounded-xl shadow-sm border border-blue-300 ring-4 ring-blue-50" x-cloak>
+            <button @click="expanded = !expanded" class="w-full px-6 py-4 flex items-center justify-between bg-blue-50/50 border-b border-blue-100 hover:bg-blue-50 transition focus:outline-none rounded-t-xl">
+                <h3 class="font-bold text-blue-900 flex items-center gap-2"><i class="fas fa-sitemap text-blue-500 w-5 text-center"></i> Variant Builder</h3>
+                <i class="fas fa-chevron-down text-blue-400 transition-transform" :class="expanded ? 'rotate-180' : ''"></i>
+            </button>
+            <div x-show="expanded" x-collapse class="p-6 rounded-b-xl">
+                
+                <div class="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6">
+                    <h4 class="text-sm font-bold text-gray-800 mb-3">Define Attributes</h4>
+                    <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+                        <div class="w-full sm:w-1/4">
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Option Name</label>
+                            <input type="text" x-model="newAttributeName" placeholder="e.g., Size" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div class="w-full sm:flex-1">
+                            <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Values (Comma Separated)</label>
+                            <input type="text" x-model="newAttributeOptions" @keydown.enter.prevent="addAttribute()" placeholder="e.g., Small, Medium, Large" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <button type="button" @click="addAttribute()" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition shadow-sm h-[38px] shrink-0">
+                            Add Option
+                        </button>
+                    </div>
+
+                    <div x-show="form.attributes.length > 0" class="mt-4 space-y-2">
+                        <template x-for="(attr, index) in form.attributes" :key="index">
+                            <div class="flex items-center gap-3 bg-white border border-gray-200 px-4 py-2.5 rounded-lg shadow-sm">
+                                <span class="text-sm font-bold text-gray-800 w-24" x-text="attr.name"></span>
+                                <div class="flex-1 flex flex-wrap gap-1.5">
+                                    <template x-for="opt in attr.options">
+                                        <span class="bg-blue-50 text-blue-700 border border-blue-100 text-xs px-2 py-0.5 rounded font-medium" x-text="opt"></span>
+                                    </template>
+                                </div>
+                                <button type="button" @click="removeAttribute(index)" class="text-gray-400 hover:text-red-500 transition"><i class="fas fa-trash-alt"></i></button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div x-show="form.variants.length > 0">
+                    <div class="flex justify-between items-center mb-3">
+                        <h4 class="text-sm font-bold text-gray-800">Generated Combinations</h4>
+                        <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded" x-text="form.variants.length + ' variants'"></span>
+                    </div>
+                    
+                    <div class="border border-gray-200 rounded-xl overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Variant</th>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Specific Media</th>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Unique SKU</th>
+                                    <th class="px-4 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Price Override</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-100">
+                                <template x-for="(variant, index) in form.variants" :key="index">
+                                    <tr class="hover:bg-gray-50/50">
+                                        <td class="px-4 py-3 whitespace-nowrap">
+                                            <span class="text-sm font-bold text-gray-900" x-text="variant.combination"></span>
+                                            <!-- Shows ID if existing -->
+                                            <span x-show="variant.id" class="ml-2 text-[8px] bg-green-100 text-green-700 px-1 py-0.5 rounded">ID: <span x-text="variant.id"></span></span>
+                                        </td>
+                                        
+                                        <td class="px-4 py-3 whitespace-nowrap">
+                                            <button @click="openVariantMediaModal(index)" type="button" 
+                                                    class="text-xs flex items-center gap-2 px-3 py-1.5 rounded border transition" 
+                                                    :class="variant.mediaFiles.length > 0 ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'">
+                                                <i class="fas fa-images"></i>
+                                                <span x-text="variant.mediaFiles.length > 0 ? variant.mediaFiles.length + ' Files' : 'Add Media'"></span>
+                                            </button>
+                                        </td>
+
+                                        <td class="px-4 py-3 whitespace-nowrap">
+                                            <input type="text" x-model="variant.sku" class="w-full px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono uppercase">
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap">
+                                            <div class="relative">
+                                                <span class="absolute left-3 top-1.5 text-gray-500 text-sm">$</span>
+                                                <input type="number" step="0.01" min="0.01" x-model="variant.price" class="w-32 pl-7 pr-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold">
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ACCORDION: GLOBAL MULTIMEDIA -->
+        <div x-show="!form.has_variants" x-data="{ expanded: false }" class="bg-white rounded-xl shadow-sm border border-gray-200" x-cloak>
+            <button @click="expanded = !expanded" class="w-full px-6 py-4 flex items-center justify-between bg-gray-50/50 border-b border-gray-100 hover:bg-gray-100 transition focus:outline-none rounded-t-xl">
+                <h3 class="font-bold text-gray-900 flex items-center gap-2">
+                    <i class="fas fa-images text-pink-500 w-5 text-center"></i> Multimedia
+                </h3>
+                <i class="fas fa-chevron-down text-gray-400 transition-transform" :class="expanded ? 'rotate-180' : ''"></i>
+            </button>
+            <div x-show="expanded" x-collapse class="p-6 rounded-b-xl">
+                <div class="w-full border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 hover:bg-gray-100 hover:border-pink-300 transition-colors p-8 flex flex-col items-center justify-center relative cursor-pointer group mb-6">
+                    <input type="file" multiple accept="image/*,video/mp4" @change="handleFileSelect($event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                    <div class="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                        <i class="fas fa-cloud-upload-alt text-2xl text-pink-500"></i>
+                    </div>
+                    <p class="text-sm font-bold text-gray-700">Click or Drag & Drop Media</p>
+                </div>
+
+                <div x-show="mediaFiles.length > 0" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    <template x-for="(media, index) in mediaFiles" :key="index">
+                        <div class="relative bg-white border rounded-xl overflow-hidden shadow-sm group aspect-square flex items-center justify-center"
+                             :class="media.isPrimary ? 'border-pink-500 ring-2 ring-pink-500 ring-opacity-50' : 'border-gray-200'">
+                            
+                            <template x-if="media.type === 'image'"><img :src="media.previewUrl" class="w-full h-full object-cover"></template>
+                            
+                            <div class="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                                <button type="button" @click.stop="setPrimaryMedia(index)" class="text-xs font-bold text-white bg-slate-800 hover:bg-pink-600 px-3 py-1.5 rounded-full transition shadow-sm border border-slate-600">Set Primary</button>
+                                <button type="button" @click.stop="removeMedia(index)" class="text-xs font-bold text-red-100 hover:text-white bg-red-600/80 hover:bg-red-600 w-8 h-8 rounded-full transition shadow-sm flex items-center justify-center"><i class="fas fa-trash-alt"></i></button>
+                            </div>
+                            <div x-show="media.isPrimary" class="absolute top-2 left-2 bg-pink-500 text-white text-[9px] font-bold uppercase px-2 py-0.5 rounded shadow-sm">Primary</div>
+                            <div x-show="media.isExisting" class="absolute bottom-2 right-2 bg-gray-800 text-white text-[9px] font-bold uppercase px-2 py-0.5 rounded shadow-sm">Saved</div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACCORDION: PRICING -->
+        <div x-data="{ expanded: false }" class="bg-white rounded-xl shadow-sm border border-gray-200">
+            <button @click="expanded = !expanded" class="w-full px-6 py-4 flex items-center justify-between bg-gray-50/50 border-b border-gray-100 hover:bg-gray-100 transition focus:outline-none rounded-t-xl">
+                <h3 class="font-bold text-gray-900 flex items-center gap-2"><i class="fas fa-dollar-sign text-emerald-500 w-5 text-center"></i> Base Pricing</h3>
+                <i class="fas fa-chevron-down text-gray-400 transition-transform" :class="expanded ? 'rotate-180' : ''"></i>
+            </button>
+            <div x-show="expanded" x-collapse class="p-6 space-y-6 rounded-b-xl">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">Base Price (USD) <span class="text-red-500">*</span></label>
+                        <div class="relative"><span class="absolute left-4 top-2.5 text-gray-500">$</span><input type="number" step="0.01" min="0.01" x-model="form.price" @input="generateVariantCombinations()" class="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg text-sm font-bold"></div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">Old Price (MSRP)</label>
+                        <div class="relative"><span class="absolute left-4 top-2.5 text-gray-400">$</span><input type="number" step="0.01" x-model="form.old_price" class="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600"></div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">Product Cost</label>
+                        <div class="relative"><span class="absolute left-4 top-2.5 text-gray-400">$</span><input type="number" step="0.01" x-model="form.product_cost" class="w-full pl-8 pr-4 py-2 border border-gray-300 bg-gray-50 rounded-lg text-sm text-gray-600"></div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-6 pt-4 border-t border-gray-100">
+                    <label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" x-model="form.disable_buy_button" class="w-5 h-5 border-gray-300 rounded text-blue-600"><span class="text-sm font-medium text-gray-700">Disable Buy Button</span></label>
+                    <label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" x-model="form.call_for_price" class="w-5 h-5 border-gray-300 rounded text-blue-600"><span class="text-sm font-medium text-gray-700">Call for Price</span></label>
+                </div>
+
+                <div class="border border-gray-200 rounded-xl overflow-hidden mt-6">
+                    <div class="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+                        <h4 class="text-sm font-bold text-gray-800"><i class="fas fa-layer-group text-emerald-500"></i> Volume Tier Pricing</h4>
+                        <button @click="addVolumeTier()" type="button" class="text-[10px] font-bold bg-white border border-gray-300 px-3 py-1.5 rounded hover:bg-emerald-50 hover:text-emerald-700 transition shadow-sm"><i class="fas fa-plus"></i> Add Tier</button>
+                    </div>
+                    <div class="p-4">
+                        <template x-if="form.volume_pricing.length === 0"><p class="text-xs text-gray-500 italic">No volume discounts applied.</p></template>
+                        <div class="space-y-3">
+                            <template x-for="(tier, index) in form.volume_pricing" :key="index">
+                                <div class="flex items-center gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                    <div class="flex-1 flex items-center gap-3"><span class="text-xs font-bold text-gray-500 uppercase">Qty >=</span><input type="number" min="1" x-model="tier.min_quantity" class="w-24 px-3 py-1.5 border border-gray-300 rounded text-sm outline-none"></div>
+                                    <div class="flex-1 flex items-center gap-3"><span class="text-xs font-bold text-gray-500 uppercase">New Price $</span><input type="number" step="0.01" min="0.01" x-model="tier.price" class="w-32 px-3 py-1.5 border border-gray-300 rounded text-sm font-bold"></div>
+                                    <button @click="removeVolumeTier(index)" type="button" class="w-8 h-8 rounded bg-white border border-gray-200 text-red-500 hover:bg-red-50 hover:border-red-200 transition flex items-center justify-center"><i class="fas fa-trash-alt"></i></button>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACCORDION: LOGISTICS & CART RULES -->
+        <div x-data="{ expanded: false }" class="bg-white rounded-xl shadow-sm border border-gray-200">
+            <button @click="expanded = !expanded" class="w-full px-6 py-4 flex items-center justify-between bg-gray-50/50 border-b border-gray-100 hover:bg-gray-100 transition focus:outline-none rounded-t-xl">
+                <h3 class="font-bold text-gray-900 flex items-center gap-2"><i class="fas fa-truck-loading text-indigo-500 w-5 text-center"></i> Logistics & Cart Rules</h3>
+                <i class="fas fa-chevron-down text-gray-400 transition-transform" :class="expanded ? 'rotate-180' : ''"></i>
+            </button>
+            <div x-show="expanded" x-collapse class="p-6 space-y-6 rounded-b-xl">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">Case Pack Quantity <span class="text-red-500">*</span></label>
+                        <input type="number" min="1" x-model="form.case_pack_quantity" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm transition bg-indigo-50/30">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">Minimum Cart Qty</label>
+                        <input type="number" min="1" x-model="form.minimum_cart_qty" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">Maximum Cart Qty</label>
+                        <input type="number" min="1" x-model="form.maximum_cart_qty" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mt-4 border-t border-gray-100 pt-4">
+                    <div><label class="text-xs font-bold text-gray-700 mb-2 block">Weight (lbs)</label><input type="number" step="0.01" x-model="form.weight" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"></div>
+                    <div><label class="text-xs font-bold text-gray-700 mb-2 block">Length (in)</label><input type="number" step="0.01" x-model="form.length" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"></div>
+                    <div><label class="text-xs font-bold text-gray-700 mb-2 block">Width (in)</label><input type="number" step="0.01" x-model="form.width" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"></div>
+                    <div><label class="text-xs font-bold text-gray-700 mb-2 block">Height (in)</label><input type="number" step="0.01" x-model="form.height" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"></div>
+                </div>
+                
+                <div class="pt-4 border-t border-gray-100">
+                    <label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" x-model="form.not_returnable" class="w-5 h-5 border-gray-300 rounded text-red-600"><span class="text-sm font-medium text-gray-700">Mark as Not Returnable</span></label>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACCORDION: B2B SPECS & COMPLIANCE -->
+        <div x-data="{ expanded: false }" class="bg-white rounded-xl shadow-sm border border-gray-200">
+            <button @click="expanded = !expanded" class="w-full px-6 py-4 flex items-center justify-between bg-gray-50/50 border-b border-gray-100 hover:bg-gray-100 transition focus:outline-none rounded-t-xl">
+                <h3 class="font-bold text-gray-900 flex items-center gap-2"><i class="fas fa-shield-alt text-purple-500 w-5 text-center"></i> B2B Specs & Compliance</h3>
+                <i class="fas fa-chevron-down text-gray-400 transition-transform" :class="expanded ? 'rotate-180' : ''"></i>
+            </button>
+            <div x-show="expanded" x-collapse class="p-6 space-y-6 rounded-b-xl">
+                <div><label class="text-xs font-bold text-gray-700 mb-2 block">Specifications</label><textarea x-model="form.specifications" rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm font-mono"></textarea></div>
+                <div><label class="text-xs font-bold text-gray-700 mb-2 block">Warranty & Handling Information</label><textarea x-model="form.warranty_info" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"></textarea></div>
+                <div><label class="text-xs font-bold text-gray-700 mb-2 block">Manufacturer Details</label><textarea x-model="form.manufacturer_info" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"></textarea></div>
+            </div>
+        </div>
+
+        <!-- ACCORDION: INVENTORY MAPPING -->
+        <div x-data="{ expanded: true }" class="bg-white rounded-xl shadow-sm border border-gray-200">
+            <div class="px-6 py-4 flex items-center justify-between bg-gray-50/50 border-b border-gray-100 rounded-t-xl">
+                <button @click="expanded = !expanded" class="flex-1 flex items-center justify-between hover:text-blue-600 transition focus:outline-none text-left">
+                    <h3 class="font-bold text-gray-900 flex items-center gap-2"><i class="fas fa-boxes text-orange-500 w-5 text-center"></i> Enterprise Inventory Distribution</h3>
+                    <i class="fas fa-chevron-down text-gray-400 transition-transform" :class="expanded ? 'rotate-180' : ''"></i>
+                </button>
+            </div>
+            <div x-show="expanded" x-collapse class="p-0 rounded-b-xl">
+                <div class="p-6 pb-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="flex-1"><p class="text-sm text-gray-600">Assign this product to specific warehouses.</p></div>
+                    <button type="button" @click="openSelectStoreModal()" class="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-blue-600 px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-2">
+                        <i class="fas fa-plus text-blue-500"></i> Assign Warehouse
+                    </button>
+                </div>
+                <div class="overflow-x-auto w-full">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Location</th>
+                                <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Initial Stock Qty</th>
+                                <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Threshold</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <template x-for="(inv, index) in form.inventory" :key="inv.store_id">
+                            <tbody class="bg-white divide-y divide-gray-100 border-b border-gray-200">
+                                <tr class="hover:bg-gray-50/50 transition">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded bg-orange-50 text-orange-600 flex items-center justify-center"><i class="fas fa-store-alt text-xs"></i></div>
+                                            <div>
+                                                <p class="font-bold text-sm text-gray-900" x-text="inv.store_name"></p>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    
+                                    <td x-show="!form.has_variants" class="px-6 py-4"><input type="number" min="1" x-model="inv.quantity" class="w-32 px-3 py-2 border rounded-lg text-sm font-bold text-gray-900"></td>
+                                    <td x-show="!form.has_variants" class="px-6 py-4"><input type="number" min="1" x-model="inv.threshold" class="w-32 px-3 py-2 border rounded-lg text-sm"></td>
+                                    <td x-show="form.has_variants" colspan="2" class="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Set stock below <i class="fas fa-level-down-alt ml-1"></i></td>
+                                    <td class="px-6 py-4 text-right"><button type="button" @click="unassignStore(index)" class="text-gray-400 hover:text-red-500"><i class="fas fa-trash-alt"></i></button></td>
+                                </tr>
+                                
+                                <template x-if="form.has_variants">
+                                    <template x-for="(variant, vIndex) in form.variants" :key="vIndex">
+                                        <tr class="bg-white hover:bg-orange-50/30">
+                                            <td class="px-6 py-3 pl-14"><span class="text-sm font-bold text-gray-700" x-text="variant.combination"></span></td>
+                                            <td class="px-6 py-3"><input type="number" min="1" x-model="inv.variant_stocks[variant.combination].quantity" class="w-32 px-3 py-1.5 border rounded-lg text-sm font-bold text-gray-900"></td>
+                                            <td class="px-6 py-3"><input type="number" min="1" x-model="inv.variant_stocks[variant.combination].threshold" class="w-32 px-3 py-1.5 border rounded-lg text-sm"></td>
+                                            <td></td>
+                                        </tr>
+                                    </template>
+                                </template>
+                            </tbody>
+                        </template>
+                        <tbody x-show="form.inventory.length === 0" class="bg-white"><tr><td colspan="4" class="px-6 py-10 text-center text-gray-500">Not assigned to any warehouse</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- VARIANT MEDIA MODAL -->
+    <div x-show="isVariantMediaModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" x-cloak>
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="closeVariantMediaModal()"></div>
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl relative z-10 flex flex-col max-h-[85vh] overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-blue-50 shrink-0">
+                <h3 class="text-base font-bold text-blue-900">Variant Specific Media</h3>
+                <button @click="closeVariantMediaModal()" class="text-blue-400 hover:text-blue-700"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto custom-scrollbar flex-1 bg-white">
+                <div class="w-full border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 p-8 flex flex-col items-center cursor-pointer mb-6 relative">
+                    <input type="file" multiple accept="image/*,video/mp4" @change="handleVariantFileSelect($event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                    <i class="fas fa-cloud-upload-alt text-2xl text-blue-500 mb-2"></i>
+                    <p class="text-sm font-bold text-gray-700">Add Media</p>
+                </div>
+
+                <template x-if="activeVariantMediaIndex !== null">
+                    <div x-show="form.variants[activeVariantMediaIndex].mediaFiles.length > 0" class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        <template x-for="(media, mIndex) in form.variants[activeVariantMediaIndex].mediaFiles" :key="mIndex">
+                            <div class="relative bg-white border rounded-xl overflow-hidden shadow-sm aspect-square flex items-center justify-center group" :class="media.isPrimary ? 'ring-2 ring-blue-500' : ''">
+                                <template x-if="media.type === 'image'"><img :src="media.previewUrl" class="w-full h-full object-cover"></template>
+                                
+                                <div class="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                                    <button type="button" @click.stop="setPrimaryVariantMedia(mIndex)" class="text-xs font-bold text-white bg-slate-800 hover:bg-blue-600 px-3 py-1.5 rounded-full">Set Primary</button>
+                                    <button type="button" @click.stop="removeVariantMedia(mIndex)" class="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center"><i class="fas fa-trash-alt"></i></button>
+                                </div>
+                                <div x-show="media.isPrimary" class="absolute top-2 left-2 bg-blue-500 text-white text-[9px] font-bold uppercase px-2 py-0.5 rounded">Primary</div>
+                                <div x-show="media.isExisting" class="absolute bottom-2 right-2 bg-gray-800 text-white text-[9px] font-bold uppercase px-2 py-0.5 rounded shadow-sm">Saved</div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+            <div class="p-4 border-t border-gray-100 bg-white shrink-0"><button type="button" @click="closeVariantMediaModal()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold">Done</button></div>
+        </div>
+    </div>
+
+    <!-- Modals for Dependencies -->
+    <!-- Select Category Modal -->
+    <div x-show="isSelectCatModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" x-cloak><div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="isSelectCatModalOpen = false"></div><div class="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10 flex flex-col max-h-[85vh] overflow-hidden"><div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 shrink-0"><h3 class="text-base font-bold text-gray-900">Select Category</h3><button @click="isSelectCatModalOpen = false" class="text-gray-400 hover:text-gray-700 transition w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-200"><i class="fas fa-times"></i></button></div><div class="p-4 border-b border-gray-100 shrink-0"><div class="relative"><i class="fas fa-search absolute left-3 top-2.5 text-gray-400"></i><input type="text" x-model="catSearchQuery" placeholder="Search categories..." class="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 hover:bg-white focus:bg-white transition"></div></div><div class="overflow-y-auto custom-scrollbar flex-1 p-4 bg-slate-50/50 min-h-[250px]"><template x-for="cat in filteredCategories" :key="String(cat.category_id)"><button type="button" @click="selectCategory(cat.category_id)" class="w-full text-left px-4 py-3 rounded-xl flex items-center justify-between transition group mb-2 border shadow-sm" :class="form.category_id == cat.category_id ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-transparent hover:border-gray-200 hover:bg-white text-gray-700'"><span class="text-sm font-bold truncate" x-text="cat.name"></span><i x-show="form.category_id == cat.category_id" class="fas fa-check-circle text-blue-600 shrink-0 ml-2"></i></button></template></div></div></div>
+    <!-- Select Brand Modal -->
+    <div x-show="isSelectBrandModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" x-cloak><div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="isSelectBrandModalOpen = false"></div><div class="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10 flex flex-col max-h-[85vh] overflow-hidden"><div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 shrink-0"><h3 class="text-base font-bold text-gray-900">Select Brand</h3><button @click="isSelectBrandModalOpen = false" class="text-gray-400 hover:text-gray-700 transition w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-200"><i class="fas fa-times"></i></button></div><div class="p-4 border-b border-gray-100 shrink-0"><div class="relative"><i class="fas fa-search absolute left-3 top-2.5 text-gray-400"></i><input type="text" x-model="brandSearchQuery" placeholder="Search brands..." class="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 hover:bg-white focus:bg-white transition"></div></div><div class="overflow-y-auto custom-scrollbar flex-1 p-4 bg-slate-50/50 min-h-[250px]"><template x-for="brand in filteredBrands" :key="String(brand.brand_id)"><button type="button" @click="selectBrand(brand.brand_id)" class="w-full text-left px-4 py-3 rounded-xl flex items-center justify-between transition group mb-2 border shadow-sm" :class="form.brand_id == brand.brand_id ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-transparent hover:border-gray-200 hover:bg-white text-gray-700'"><span class="text-sm font-bold truncate" x-text="brand.name"></span><i x-show="form.brand_id == brand.brand_id" class="fas fa-check-circle text-blue-600 shrink-0 ml-2"></i></button></template></div></div></div>
+    <!-- Select Warehouse Modal -->
+    <div x-show="isSelectStoreModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" x-cloak><div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="isSelectStoreModalOpen = false"></div><div class="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10 flex flex-col max-h-[85vh] overflow-hidden"><div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 shrink-0"><h3 class="text-base font-bold text-gray-900">Assign Warehouse</h3><button @click="isSelectStoreModalOpen = false" class="text-gray-400 hover:text-gray-700 transition w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-200"><i class="fas fa-times"></i></button></div><div class="p-4 border-b border-gray-100 shrink-0"><div class="relative"><i class="fas fa-search absolute left-3 top-2.5 text-gray-400"></i><input type="text" x-model="storeSearchQuery" placeholder="Search..." class="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"></div></div><div class="overflow-y-auto custom-scrollbar flex-1 p-4 bg-slate-50/50 min-h-[250px]"><template x-for="store in unassignedStores" :key="String(store.store_id)"><button type="button" @click="assignStore(store)" class="w-full text-left px-4 py-3 rounded-xl flex items-center justify-between transition group mb-2 border shadow-sm bg-white hover:border-orange-200 hover:bg-orange-50"><span class="text-sm font-bold truncate" x-text="store.name || store.store_name"></span><i class="fas fa-plus-circle text-gray-300 group-hover:text-orange-500"></i></button></template></div></div></div>
+
+</div>
+{% endblock %}

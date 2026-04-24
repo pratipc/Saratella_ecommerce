@@ -1,0 +1,234 @@
+<!-- File: categories.html -->
+<!-- Location: /app/templates/admin/ -->
+
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Manage Categories - Saratella Admin{% endblock %}
+
+{% block admin_content %}
+<script>
+    window.initialCategories = {{ categories | default([]) | tojson | safe }};
+
+    function categoryManagementLogic() {
+        return {
+            categories: window.initialCategories,
+            searchQuery: '',
+            
+            isModalOpen: false,
+            isEditing: false,
+            isSaving: false,
+            formData: { category_id: null, name: '', description: '', imageFile: null, imagePreview: '' },
+
+            get filteredCategories() {
+                if (!this.searchQuery) return this.categories;
+                const q = this.searchQuery.toLowerCase();
+                return this.categories.filter(c => c.name.toLowerCase().includes(q) || (c.description && c.description.toLowerCase().includes(q)));
+            },
+
+            openModal(category = null) {
+                if (category) {
+                    this.isEditing = true;
+                    this.formData = { 
+                        category_id: category.category_id, 
+                        name: category.name, 
+                        description: category.description || '', 
+                        imageFile: null, 
+                        imagePreview: category.image_url || '' 
+                    };
+                } else {
+                    this.isEditing = false;
+                    this.formData = { category_id: null, name: '', description: '', imageFile: null, imagePreview: '' };
+                }
+                this.isModalOpen = true;
+            },
+            
+            closeModal() {
+                this.isModalOpen = false;
+            },
+
+            handleImageSelect(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    this.formData.imageFile = file;
+                    this.formData.imagePreview = URL.createObjectURL(file);
+                }
+            },
+
+            async saveCategory() {
+                if (!this.formData.name) return;
+                this.isSaving = true;
+                
+                // Pack text AND the file into a FormData object
+                const payload = new FormData();
+                if (this.isEditing) payload.append('category_id', this.formData.category_id);
+                payload.append('name', this.formData.name);
+                payload.append('description', this.formData.description);
+                if (this.formData.imageFile) {
+                    payload.append('image', this.formData.imageFile);
+                }
+                
+                const method = this.isEditing ? 'PUT' : 'POST';
+                
+                try {
+                    const res = await fetch("{{ url_for('admin.api_save_category') }}", {
+                        method: method,
+                        body: payload
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to save category.");
+                    
+                    if (typeof showToast === 'function') showToast(`Category successfully ${this.isEditing ? 'updated' : 'created'}!`, "success");
+                    setTimeout(() => window.location.reload(), 600);
+                    
+                } catch(err) {
+                    if (typeof showToast === 'function') showToast(err.message, "error");
+                    this.isSaving = false;
+                }
+            }
+        }
+    }
+</script>
+
+<div class="max-w-7xl mx-auto pb-10" x-data="categoryManagementLogic()">
+    
+    <!-- Page Header -->
+    <div class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Manage Categories</h1>
+            <p class="mt-2 text-sm text-gray-500">Organize your enterprise catalog with visual categories.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <button @click="openModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition shadow-md flex items-center gap-2">
+                <i class="fas fa-plus"></i> Add Category
+            </button>
+        </div>
+    </div>
+
+    <!-- Search Panel -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 p-4">
+        <div class="relative w-full max-w-md">
+            <i class="fas fa-search absolute left-4 top-3 text-gray-400"></i>
+            <input type="text" x-model="searchQuery" placeholder="Search categories..." class="w-full pl-11 pr-4 py-2.5 bg-gray-50 hover:bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+        </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+        <div class="overflow-x-auto w-full flex-1">
+            <table class="min-w-full divide-y divide-gray-200 text-sm text-left">
+                <thead class="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-sm">
+                    <tr>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Category</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Description</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 bg-white">
+                    <template x-for="cat in filteredCategories" :key="cat.category_id">
+                        <tr class="hover:bg-gray-50/80 transition-colors group">
+                            
+                            <!-- Image & Name -->
+                            <td class="px-6 py-4 whitespace-nowrap w-1/3">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-12 h-12 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center shrink-0 overflow-hidden shadow-sm p-0.5">
+                                        <template x-if="cat.image_url">
+                                            <img :src="cat.image_url" class="w-full h-full object-cover rounded-md">
+                                        </template>
+                                        <template x-if="!cat.image_url">
+                                            <i class="fas fa-layer-group text-gray-300 text-lg"></i>
+                                        </template>
+                                    </div>
+                                    <span class="text-sm font-bold text-gray-900" x-text="cat.name"></span>
+                                </div>
+                            </td>
+                            
+                            <!-- Description -->
+                            <td class="px-6 py-4">
+                                <p class="text-xs text-gray-600 line-clamp-2" x-text="cat.description || 'No description provided.'"></p>
+                            </td>
+                            
+                            <!-- Action -->
+                            <td class="px-6 py-4 text-right whitespace-nowrap">
+                                <button @click="openModal(cat)" class="text-gray-400 hover:text-blue-600 transition flex items-center justify-end gap-1 ml-auto cursor-pointer font-bold text-xs" title="Edit Category">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                    
+                    <tr x-show="filteredCategories.length === 0" x-cloak>
+                        <td colspan="3" class="px-6 py-12 text-center text-gray-500">
+                            <div class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-300">
+                                <i class="fas fa-folder-open text-2xl"></i>
+                            </div>
+                            <p class="font-bold text-gray-900 mb-1">No categories found.</p>
+                            <p class="text-sm">Try adjusting your search or create a new category.</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: ADD / EDIT CATEGORY                 -->
+    <!-- ========================================== -->
+    <div x-show="isModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" x-cloak>
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="closeModal()"></div>
+        
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
+                <h3 class="text-lg font-bold text-gray-900">
+                    <i class="fas fa-layer-group text-blue-500 mr-2"></i> 
+                    <span x-text="isEditing ? 'Edit Category' : 'Add New Category'"></span>
+                </h3>
+                <button @click="closeModal()" class="text-gray-400 hover:text-gray-700 transition w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-200"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <form @submit.prevent="saveCategory" class="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar">
+                
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Category Name <span class="text-red-500">*</span></label>
+                    <input type="text" x-model="formData.name" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-400">
+                </div>
+                
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Description</label>
+                    <textarea x-model="formData.description" rows="3" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-400"></textarea>
+                </div>
+
+                <!-- Category Image Upload -->
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1 flex items-center gap-1">
+                        Category Image <span class="text-[10px] font-normal text-gray-400 ml-1">(Optional)</span>
+                    </label>
+                    <div class="mt-1 flex items-center gap-4 bg-gray-50 border border-gray-200 rounded-xl p-4">
+                        <div class="w-20 h-20 rounded-lg bg-white border border-gray-200 overflow-hidden flex items-center justify-center shrink-0 shadow-sm p-1">
+                            <template x-if="formData.imagePreview">
+                                <img :src="formData.imagePreview" class="w-full h-full object-cover rounded">
+                            </template>
+                            <template x-if="!formData.imagePreview">
+                                <i class="fas fa-image text-gray-300 text-2xl"></i>
+                            </template>
+                        </div>
+                        <input type="file" accept="image/*" @change="handleImageSelect" class="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition w-full cursor-pointer">
+                    </div>
+                </div>
+
+            </form>
+            
+            <div class="p-4 border-t border-gray-100 bg-gray-50 shrink-0">
+                <button type="button" @click="saveCategory" :disabled="isSaving" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-sm transition flex justify-center items-center gap-2">
+                    <span x-show="!isSaving">
+                        <i class="fas fa-save mr-1"></i> 
+                        <span x-text="isEditing ? 'Save Changes' : 'Create Category'"></span>
+                    </span>
+                    <span x-show="isSaving"><i class="fas fa-spinner fa-spin"></i> Saving...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

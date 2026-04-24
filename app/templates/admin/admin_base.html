@@ -1,0 +1,203 @@
+<!-- File: admin_base.html -->
+<!-- Location: /app/templates/admin/ -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Administration - Saratella{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased" x-data="{ sidebarOpen: false }">
+
+    <!-- Global Toast Container -->
+    <div id="toast-container" class="fixed top-5 right-5 z-[200] flex flex-col gap-3 pointer-events-none">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    {% set color = 'red' if category == 'error' else 'green' if category == 'success' else 'blue' %}
+                    <div class="toast-item pointer-events-auto flex items-start w-80 bg-white shadow-lg rounded-lg border-l-4 border-{{ color }}-500 p-4 transition-all duration-300">
+                        <div class="flex-shrink-0 text-{{ color }}-500"><i class="fas fa-info-circle text-lg"></i></div>
+                        <div class="ml-3 flex-1"><p class="text-sm text-gray-500">{{ message }}</p></div>
+                        <div class="ml-4 flex-shrink-0 flex">
+                            <button onclick="this.closest('.toast-item').remove()" class="text-gray-400 hover:text-gray-500"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- Mobile Sidebar Overlay -->
+    <div x-show="sidebarOpen" class="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm lg:hidden" @click="sidebarOpen = false" x-transition x-cloak></div>
+
+    <!-- Sidebar -->
+    <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'" class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transition-transform duration-300 lg:translate-x-0 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
+        
+        <!-- Logo Area -->
+        <div class="h-16 flex items-center justify-between px-6 border-b border-gray-100 shrink-0">
+            <a href="{{ url_for('admin.dashboard') }}" class="block">
+                <img src="{{ url_for('static', filename='logo_admin.png') }}" alt="Martin Brower" class="h-8 object-contain">
+            </a>
+            <button @click="sidebarOpen = false" class="lg:hidden text-gray-400 hover:text-gray-900">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Navigation Links -->
+        <div class="flex-1 overflow-y-auto custom-scrollbar py-6 px-4" x-data="{ catalogOpen: false, salesOpen: false }">
+            
+            <p class="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Overview</p>
+            <nav class="space-y-1 mb-8">
+                <a href="{{ url_for('admin.dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition {% if request.endpoint == 'admin.dashboard' %}bg-blue-50 text-blue-700 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %}">
+                    <i class="fas fa-chart-pie w-5 text-center"></i> Dashboard
+                </a>
+            </nav>
+
+            <p class="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Management</p>
+            <nav class="space-y-1 mb-8">
+                <!-- Catalog Menu -->
+                <div>
+                    <button @click="catalogOpen = !catalogOpen" class="w-full flex items-center justify-between px-3 py-2.5 text-gray-600 hover:bg-gray-50 hover:text-slate-900 rounded-lg font-medium text-sm transition focus:outline-none">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-book w-5 text-center {% if 'catalog' in request.path %}text-blue-600{% endif %}"></i> Catalog
+                        </div>
+                        <i class="fas fa-chevron-down text-[10px] transition-transform" :class="catalogOpen ? 'rotate-180' : ''"></i>
+                    </button>
+                    <div x-show="catalogOpen || '{{ request.path }}'.includes('catalog')" class="pl-11 pr-3 py-1 space-y-1" x-collapse>
+                        <a href="{{ url_for('admin.catalog_list') }}" class="block py-2 text-sm transition {% if request.endpoint == 'admin.catalog_list' or request.endpoint == 'admin.product_create' %}text-blue-600 font-bold{% else %}text-gray-500 hover:text-slate-900{% endif %}">Products</a>
+                        <a href="{{ url_for('admin.category_list') }}" class="block py-2 text-sm transition {% if request.endpoint == 'admin.category_list' %}text-blue-600 font-bold{% else %}text-gray-500 hover:text-slate-900{% endif %}">Categories</a>
+                        <a href="{{ url_for('admin.brand_list') }}" class="block py-2 text-sm transition {% if request.endpoint == 'admin.brand_list' %}text-blue-600 font-bold{% else %}text-gray-500 hover:text-slate-900{% endif %}">Brands</a>
+                    </div>
+                </div>
+
+                <!-- Sales Menu -->
+                <div>
+                    <button @click="salesOpen = !salesOpen" class="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition focus:outline-none {% if 'sales' in request.path %}bg-gray-50 text-slate-900 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %}">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-shopping-cart w-5 text-center {% if 'sales' in request.path %}text-blue-600{% endif %}"></i> Sales
+                        </div>
+                        <i class="fas fa-chevron-down text-[10px] transition-transform" :class="salesOpen ? 'rotate-180' : ''"></i>
+                    </button>
+                    <div x-show="salesOpen || '{{ request.path }}'.includes('sales')" class="pl-11 pr-3 py-1 space-y-1" x-collapse>
+                        <a href="{{ url_for('admin.global_orders') }}" class="block py-2 text-sm transition {% if request.endpoint == 'admin.global_orders' %}text-blue-600 font-bold{% else %}text-gray-500 hover:text-slate-900{% endif %}">Global Orders</a>
+                        <a href="#" class="block py-2 text-sm text-gray-500 hover:text-slate-900 transition">Shipments</a>
+                    </div>
+                </div>
+                
+                <!-- NEW: Restaurant Management -->
+                <a href="{{ url_for('admin.manage_restaurants') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition {% if request.endpoint == 'admin.manage_restaurants' %}bg-gray-50 text-slate-900 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %}">
+                    <i class="fas fa-store w-5 text-center {% if request.endpoint == 'admin.manage_restaurants' %}text-blue-600{% endif %}"></i> Restaurants
+                </a>
+
+                <!-- System Staff / Helpdesk -->
+                <a href="{{ url_for('admin.manage_staff') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition {% if request.endpoint == 'admin.manage_staff' %}bg-gray-50 text-slate-900 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %}">
+                    <i class="fas fa-user-shield w-5 text-center {% if request.endpoint == 'admin.manage_staff' %}text-blue-600{% endif %}"></i> System Users
+                </a>
+            </nav>
+        </div>
+
+        <!-- User Profile Area -->
+        <div class="p-4 border-t border-gray-100 bg-gray-50/50 shrink-0">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold shadow-sm shrink-0">
+                    {{ session.get('first_name', 'A')[0] | upper }}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-bold text-gray-900 truncate">{{ session.get('first_name', 'System') }} {{ session.get('last_name', 'Admin') }}</p>
+                    <p class="text-[10px] text-gray-500 uppercase tracking-widest truncate font-medium">
+                        <i class="fas fa-headset text-gray-400 mr-1"></i> Helpdesk Portal
+                    </p>
+                </div>
+            </div>
+            <a href="{{ url_for('auth.logout') }}" class="w-full flex items-center justify-center gap-2 py-2 border border-gray-300 rounded-md text-xs font-bold text-gray-700 hover:bg-gray-100 transition shadow-sm bg-white">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col min-h-screen min-w-0 lg:pl-64">
+        
+        <!-- Header -->
+        <header class="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-4 sm:px-6 shadow-sm z-30 sticky top-0 shrink-0">
+            <div class="flex items-center gap-3">
+                <button @click="sidebarOpen = true" class="lg:hidden text-gray-500 hover:text-gray-900 focus:outline-none">
+                    <i class="fas fa-bars text-lg"></i>
+                </button>
+                <a href="{{ url_for('admin.dashboard') }}" class="lg:hidden flex items-center">
+                    <img src="{{ url_for('static', filename='logo_admin.png') }}" alt="Martin Brower" class="h-6 object-contain">
+                </a>
+            </div>
+            
+            <div class="flex items-center gap-4 ml-auto">
+                <a href="{{ url_for('user.dashboard') }}" target="_blank" class="text-xs font-bold text-gray-500 hover:text-blue-600 transition flex items-center gap-2 uppercase tracking-wide border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-200 px-3 py-1.5 rounded-lg">
+                    <i class="fas fa-external-link-alt"></i> Storefront
+                </a>
+            </div>
+        </header>
+
+        <!-- Dynamic Content injected here -->
+        <main class="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-7xl mx-auto overflow-y-auto custom-scrollbar">
+            {% block admin_content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Universal JavaScript Helpers -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const toasts = document.querySelectorAll('.toast-item');
+            toasts.forEach((toast, index) => {
+                setTimeout(() => { toast.classList.remove('translate-x-full', 'opacity-0'); }, 100 * index);
+                setTimeout(() => { 
+                    toast.classList.add('translate-x-full', 'opacity-0');
+                    setTimeout(() => toast.remove(), 300);
+                }, 4000 + (1000 * index));
+            });
+        });
+
+        window.showToast = function(message, type = 'error') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+
+            const color = type === 'success' ? 'green' : type === 'warning' ? 'yellow' : 'red';
+            const icon = type === 'success' ? 'fa-check-circle' : type === 'warning' ? 'fa-exclamation-triangle' : 'fa-exclamation-circle';
+
+            const toast = document.createElement('div');
+            toast.className = `toast-item pointer-events-auto flex items-start w-80 bg-white shadow-lg rounded-lg border-l-4 border-${color}-500 p-4 transition-all duration-300 translate-x-full opacity-0`;
+            toast.innerHTML = `
+                <div class="flex-shrink-0 text-${color}-500"><i class="fas ${icon} text-lg"></i></div>
+                <div class="ml-3 flex-1"><p class="text-sm text-gray-500">${message}</p></div>
+                <div class="ml-4 flex-shrink-0 flex">
+                    <button onclick="this.closest('.toast-item').remove()" class="text-gray-400 hover:text-gray-500"><i class="fas fa-times"></i></button>
+                </div>
+            `;
+            container.appendChild(toast);
+
+            requestAnimationFrame(() => {
+                setTimeout(() => toast.classList.remove('translate-x-full', 'opacity-0'), 10);
+            });
+
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.classList.add('translate-x-full', 'opacity-0');
+                    setTimeout(() => toast.remove(), 300);
+                }
+            }, 3000);
+        };
+    </script>
+</body>
+</html>

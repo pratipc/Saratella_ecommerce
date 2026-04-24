@@ -17,7 +17,8 @@
     {% if categories %}
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
         {% for cat in categories %}
-        <a href="{{ url_for('user.category_view', category_id=cat.category_id) }}" 
+        <!-- THE FIX: Changed 'user.category_view' to 'user.category_products' -->
+        <a href="{{ url_for('user.category_products', category_id=cat.category_id) }}" 
            class="group flex flex-col items-center focus:outline-none p-4 rounded-xl hover:bg-gray-50 transition duration-200">
             
             <!-- Icon/Image Container -->
@@ -43,8 +44,11 @@
     </div>
     {% else %}
     <div class="text-center py-20 bg-gray-50 rounded-xl border border-gray-200 border-dashed">
-        <i class="fas fa-th-large text-gray-300 text-4xl mb-3"></i>
-        <p class="text-gray-500 text-sm">No categories found.</p>
+        <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-3 text-gray-300 shadow-sm">
+            <i class="fas fa-folder-open text-2xl"></i>
+        </div>
+        <p class="font-bold text-gray-900 mb-1">No Categories Found</p>
+        <p class="text-sm text-gray-500">Check back later for updates.</p>
     </div>
     {% endif %}
 </div>

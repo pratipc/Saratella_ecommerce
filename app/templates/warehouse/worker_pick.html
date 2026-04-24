@@ -1,0 +1,375 @@
+<!-- File: worker_pick.html -->
+<!-- Location: /app/templates/warehouse/ -->
+
+{% extends "warehouse/warehouse_base.html" %}
+
+{% block title %}My Tasks - Warehouse Portal{% endblock %}
+
+{% block warehouse_content %}
+<script>
+    window.initialTasks = {{ tasks | default([]) | tojson | safe }};
+    window.workerId = {{ session.get('user_id') | tojson | safe }};
+
+    function workerPickLogic() {
+        return {
+            searchQuery: '',
+            tasks: window.initialTasks || [],
+            
+            activeTaskId: null,
+            activeTask: null,
+            activeItems: [],
+            packedItemIds: [],
+            
+            isLoadingDetails: false,
+            isStatusUpdating: false,
+            isClaiming: false,
+
+            get filteredTasks() {
+                if (!this.searchQuery) return this.tasks;
+                const q = this.searchQuery.toLowerCase();
+                return this.tasks.filter(task => 
+                    task.order_number.toLowerCase().includes(q)
+                );
+            },
+
+            selectTask(taskId) {
+                if (this.activeTaskId === taskId) return;
+                
+                this.activeTaskId = taskId;
+                this.isLoadingDetails = true;
+                this.activeTask = this.tasks.find(t => t.order_id === taskId);
+                this.activeItems = [];
+                this.packedItemIds = [];
+                
+                const baseUrl = "{{ url_for('warehouse.get_order_details', order_id=0) }}";
+                const targetUrl = baseUrl.replace('/0', '/' + taskId);
+                
+                fetch(targetUrl)
+                    .then(async res => {
+                        if (!res.ok) throw new Error(`Server Error: ${res.status}`);
+                        return res.json();
+                    })
+                    .then(data => {
+                        if(data.error) throw new Error(data.error);
+                        
+                        // We map the items and initialize picked_quantity to the full amount by default
+                        this.activeItems = data.items.map(item => ({
+                            ...item,
+                            picked_quantity: item.quantity 
+                        }));
+                    })
+                    .catch(err => {
+                        alert("Failed to load details: " + err.message);
+                        this.activeTaskId = null;
+                    })
+                    .finally(() => this.isLoadingDetails = false);
+            },
+
+            claimTask() {
+                if (!this.activeTask) return;
+                this.isClaiming = true;
+                
+                const baseUrl = "{{ url_for('warehouse.claim_task', order_id=0) }}";
+                const targetUrl = baseUrl.replace('/0/', `/${this.activeTask.order_id}/`);
+                
+                fetch(targetUrl, { method: 'POST' })
+                .then(async res => {
+                    const data = await res.json().catch(() => null);
+                    if(!res.ok || (data && data.error)) throw new Error((data && data.error) || "Server Error");
+                    
+                    // Update Local State instantly to mark as self-claimed
+                    this.activeTask.assigned_worker_id = window.workerId;
+                    this.activeTask.assigned_by = window.workerId;
+                    
+                    const taskInList = this.tasks.find(t => t.order_id === this.activeTask.order_id);
+                    if (taskInList) {
+                        taskInList.assigned_worker_id = window.workerId;
+                        taskInList.assigned_by = window.workerId;
+                    }
+                    
+                    if(typeof showToast === 'function') showToast("Task locked to you.", "success");
+                })
+                .catch(err => {
+                    if(typeof showToast === 'function') showToast(err.message, "error");
+                })
+                .finally(() => this.isClaiming = false);
+            },
+
+            togglePacked(itemId) {
+                if (this.packedItemIds.includes(itemId)) {
+                    this.packedItemIds = this.packedItemIds.filter(id => id !== itemId);
+                } else {
+                    this.packedItemIds.push(itemId);
+                }
+            },
+            
+            adjustPickQuantity(itemId, delta) {
+                const item = this.activeItems.find(i => i.order_item_id === itemId);
+                if (item) {
+                    const newQty = item.picked_quantity + delta;
+                    if (newQty >= 0 && newQty <= item.quantity) {
+                        item.picked_quantity = newQty;
+                    }
+                }
+            },
+
+            get allItemsPacked() {
+                // To unlock dispatch, worker must manually check off every row
+                return this.activeItems.length > 0 && this.packedItemIds.length === this.activeItems.length;
+            },
+            
+            get isPartialFulfillment() {
+                // Check if any item's picked quantity is less than what was requested
+                return this.activeItems.some(item => item.picked_quantity < item.quantity);
+            },
+
+            dispatchOrder() {
+                if (!this.activeTask) return;
+                this.isStatusUpdating = true;
+                
+                const baseUrl = "{{ url_for('warehouse.update_order_status', order_id=0) }}";
+                const targetUrl = baseUrl.replace('/0/', `/${this.activeTask.order_id}/`);
+                
+                // Determine final status
+                const finalStatus = this.isPartialFulfillment ? 'partially_shipped' : 'shipped';
+
+                // We construct the array required by the SP: { order_item_id, picked_quantity }
+                const payload = {
+                    status: finalStatus,
+                    picked_items: this.activeItems.map(i => ({
+                        order_item_id: i.order_item_id,
+                        picked_quantity: i.picked_quantity
+                    }))
+                };
+                
+                fetch(targetUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                .then(async res => {
+                    const data = await res.json().catch(() => null);
+                    if(!res.ok || (data && data.error)) throw new Error((data && data.error) || "Server Error");
+                    
+                    if(typeof showToast === 'function') showToast("Order Dispatched successfully!", "success");
+                    
+                    // Remove from list & clear view
+                    this.tasks = this.tasks.filter(t => t.order_id !== this.activeTask.order_id);
+                    this.activeTaskId = null;
+                    this.activeTask = null;
+                    this.activeItems = [];
+                })
+                .catch(err => {
+                    if(typeof showToast === 'function') showToast(err.message, "error");
+                })
+                .finally(() => this.isStatusUpdating = false);
+            }
+        }
+    }
+</script>
+
+<style>
+    main { padding: 0 !important; }
+</style>
+
+<div class="h-[calc(100vh-4rem)] flex flex-col md:flex-row w-full" x-data="workerPickLogic()">
+    
+    <!-- LEFT PANE: Task List -->
+    <div class="w-full md:w-[350px] lg:w-[400px] flex-shrink-0 bg-white border-r border-gray-200 flex flex-col h-full z-10 shadow-sm">
+        <div class="p-5 border-b border-gray-200 bg-gray-50/80">
+            <h1 class="text-xl font-extrabold text-gray-900 mb-4 tracking-tight">My Tasks</h1>
+            <div class="relative">
+                <i class="fas fa-barcode absolute left-4 top-3 text-gray-400"></i>
+                <input type="text" x-model="searchQuery" placeholder="Scan or type Order #..." 
+                       class="w-full pl-11 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none shadow-inner bg-white">
+            </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50 p-3 space-y-2">
+            <template x-for="task in filteredTasks" :key="task.order_id">
+                <div @click="selectTask(task.order_id)"
+                     class="p-4 rounded-xl border cursor-pointer transition-all relative overflow-hidden group"
+                     :class="activeTaskId === task.order_id ? 'bg-blue-600 border-blue-600 text-white shadow-md transform scale-[1.02]' : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-sm text-gray-900'">
+                    
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-base font-black font-mono tracking-tight" x-text="task.order_number"></span>
+                        
+                        <!-- INTELLIGENT ASSIGNMENT BADGES -->
+                        <template x-if="task.assigned_worker_id === window.workerId">
+                            <div>
+                                <!-- Assigned by Manager -->
+                                <template x-if="task.assigned_by && task.assigned_by !== task.assigned_worker_id">
+                                    <span class="text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded flex items-center gap-1.5 transition-colors"
+                                          :class="activeTaskId === task.order_id ? 'bg-white/20 text-white' : 'bg-green-100 text-green-800 border border-green-200'">
+                                        <i class="fas fa-user-shield"></i> <span x-text="'Assigned by ' + (task.manager_first_name || 'Manager')"></span>
+                                    </span>
+                                </template>
+                                <!-- Claimed by Worker -->
+                                <template x-if="!task.assigned_by || task.assigned_by === task.assigned_worker_id">
+                                    <span class="text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded flex items-center gap-1.5 transition-colors"
+                                          :class="activeTaskId === task.order_id ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800 border border-blue-200'">
+                                        <i class="fas fa-bolt"></i> Self-Claimed
+                                    </span>
+                                </template>
+                            </div>
+                        </template>
+                        <!-- Unclaimed / Auto Queue -->
+                        <template x-if="!task.assigned_worker_id">
+                            <span class="text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded flex items-center gap-1.5 transition-colors"
+                                  :class="activeTaskId === task.order_id ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-800 border border-purple-200'">
+                                <i class="fas fa-robot"></i> Auto-Queue
+                            </span>
+                        </template>
+                    </div>
+                    
+                    <div class="flex justify-between items-end mt-3">
+                        <div :class="activeTaskId === task.order_id ? 'text-blue-100' : 'text-gray-500'">
+                            <p class="text-[10px] font-bold uppercase tracking-widest mb-0.5">Dropped</p>
+                            <!-- Date AND Time display -->
+                            <p class="text-xs font-medium" x-text="task.formatted_date + ' &bull; ' + task.formatted_time"></p>
+                        </div>
+                        <i class="fas fa-chevron-right text-sm" :class="activeTaskId === task.order_id ? 'text-white' : 'text-gray-300 group-hover:text-blue-400'"></i>
+                    </div>
+                </div>
+            </template>
+            
+            <div x-show="filteredTasks.length === 0" class="py-12 text-center text-gray-500 text-sm">
+                <i class="fas fa-dolly-flatbed text-3xl mb-3 text-gray-300"></i>
+                <p>No pending tasks on the floor.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT PANE: Packing Interface -->
+    <div class="flex-1 bg-white flex flex-col h-full overflow-hidden relative">
+        
+        <!-- Empty State -->
+        <div x-show="!activeTaskId" class="flex-1 flex flex-col items-center justify-center text-center p-8 bg-slate-50">
+            <div class="w-24 h-24 bg-white rounded-full shadow-sm flex items-center justify-center mb-5 text-gray-300">
+                <i class="fas fa-barcode text-4xl"></i>
+            </div>
+            <h2 class="text-xl font-bold text-gray-900 mb-2">Ready to Pick</h2>
+            <p class="text-sm text-gray-500 max-w-sm">Select a task from your queue to begin scanning and packing items.</p>
+        </div>
+
+        <div x-show="isLoadingDetails" class="absolute inset-0 bg-white/90 backdrop-blur-sm z-20 flex flex-col items-center justify-center" x-cloak>
+            <i class="fas fa-spinner fa-spin text-4xl text-blue-600 mb-4"></i>
+            <p class="text-sm font-bold text-gray-600 uppercase tracking-widest">Loading Manifest...</p>
+        </div>
+
+        <div x-show="activeTask && !isLoadingDetails" class="flex flex-col h-full" x-cloak>
+            
+            <!-- Sticky Task Header -->
+            <div class="bg-white border-b border-gray-200 p-6 flex-shrink-0 z-10 flex justify-between items-center shadow-sm">
+                <div>
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Active Box</p>
+                    <h2 class="text-3xl font-black text-gray-900 font-mono tracking-tight" x-text="activeTask?.order_number"></h2>
+                    
+                    <!-- Date and Time -->
+                    <p class="text-xs text-gray-500 mt-1 font-medium">
+                        <i class="far fa-clock mr-1 text-gray-400"></i> <span x-text="activeTask?.formatted_date + ' at ' + activeTask?.formatted_time"></span>
+                    </p>
+
+                    <!-- Detail Subtext for Manager Assignment -->
+                    <template x-if="activeTask?.assigned_by && activeTask?.assigned_by !== activeTask?.assigned_worker_id">
+                        <p class="text-xs text-green-700 font-bold mt-2 bg-green-50 px-2.5 py-1 rounded inline-flex items-center gap-2 border border-green-200">
+                            <i class="fas fa-user-shield text-green-600"></i> Priority Assignment by <span x-text="activeTask?.manager_first_name || 'Manager'"></span>
+                        </p>
+                    </template>
+
+                    <!-- Detail Subtext for Auto-Queue -->
+                    <template x-if="!activeTask?.assigned_by || activeTask?.assigned_by === activeTask?.assigned_worker_id">
+                        <p class="text-xs text-blue-700 font-bold mt-2 bg-blue-50 px-2.5 py-1 rounded inline-flex items-center gap-2 border border-blue-200">
+                            <i class="fas fa-bolt text-blue-600"></i> Self-Claimed / Auto-Queue
+                        </p>
+                    </template>
+                </div>
+                <div class="text-right">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Total Items</p>
+                    <p class="text-2xl font-black text-slate-900" x-text="activeItems.length"></p>
+                </div>
+            </div>
+
+            <!-- Scrollable Packing List -->
+            <div class="flex-1 overflow-y-auto bg-slate-50 p-6 custom-scrollbar">
+                
+                <!-- Unclaimed Overlay -->
+                <div x-show="!activeTask?.assigned_worker_id" class="mb-6 bg-purple-50 rounded-xl p-6 border border-purple-200 text-center shadow-sm">
+                    <h3 class="text-purple-900 font-bold text-lg mb-2">Unassigned Task</h3>
+                    <p class="text-purple-700 text-sm mb-4">This task is in the public queue. Claim it to lock it to your scanner.</p>
+                    <button @click="claimTask()" :disabled="isClaiming" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-8 rounded-lg shadow-md transition disabled:opacity-50">
+                        <span x-show="!isClaiming"><i class="fas fa-lock mr-2"></i> Claim & Start Packing</span>
+                        <span x-show="isClaiming"><i class="fas fa-spinner fa-spin"></i> Locking...</span>
+                    </button>
+                </div>
+
+                <div x-show="activeTask?.assigned_worker_id === window.workerId">
+                    <ul class="space-y-3">
+                        <template x-for="item in activeItems" :key="item.order_item_id">
+                            <li class="bg-white p-5 rounded-xl border shadow-sm flex flex-col md:flex-row md:items-center gap-6 transition-all" 
+                                :class="packedItemIds.includes(item.order_item_id) ? 'border-green-500 ring-1 ring-green-500/50' : 'border-gray-200'">
+                                
+                                <!-- Checkbox & Details -->
+                                <div class="flex items-center gap-4 flex-1 cursor-pointer" @click="togglePacked(item.order_item_id)">
+                                    <div class="w-8 h-8 rounded-lg border-2 flex items-center justify-center shrink-0 transition-colors"
+                                         :class="packedItemIds.includes(item.order_item_id) ? 'bg-green-500 border-green-500 text-white' : 'bg-gray-50 border-gray-300 text-transparent hover:border-gray-400'">
+                                        <i class="fas fa-check text-sm"></i>
+                                    </div>
+
+                                    <img :src="item.image_url" class="h-16 w-16 rounded-xl border border-gray-100 object-cover bg-white shrink-0 shadow-sm">
+                                    
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-base font-bold text-gray-900 truncate" x-text="item.product_name"></p>
+                                        <p class="text-xs text-gray-500 font-medium mt-1 inline-block bg-gray-100 px-2 py-0.5 rounded" x-text="item.variant_name"></p>
+                                        <p class="text-[10px] text-gray-400 font-mono mt-1.5" x-text="'SKU: ' + item.sku"></p>
+                                    </div>
+                                </div>
+                                
+                                <!-- Interactive Picker -->
+                                <div class="flex items-center justify-between md:justify-end gap-6 md:w-64 bg-slate-50 p-3 rounded-xl border border-gray-100">
+                                    <div class="text-center">
+                                        <p class="text-[10px] text-gray-400 uppercase tracking-widest mb-1 font-bold">Needed</p>
+                                        <p class="text-xl font-black text-gray-400" x-text="item.quantity"></p>
+                                    </div>
+                                    
+                                    <div class="flex flex-col items-center">
+                                        <p class="text-[10px] text-blue-600 uppercase tracking-widest mb-1 font-bold">Packed</p>
+                                        <div class="flex items-center gap-3 bg-white px-2 py-1 rounded-lg border border-blue-200 shadow-sm">
+                                            <button @click="adjustPickQuantity(item.order_item_id, -1)" class="w-8 h-8 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 flex items-center justify-center transition hover:text-red-500"><i class="fas fa-minus text-xs"></i></button>
+                                            <span class="text-2xl font-black text-blue-600 w-8 text-center" x-text="item.picked_quantity"></span>
+                                            <button @click="adjustPickQuantity(item.order_item_id, 1)" class="w-8 h-8 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 flex items-center justify-center transition hover:text-green-500"><i class="fas fa-plus text-xs"></i></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Sticky Action Footer (Dispatch) -->
+            <div class="bg-white border-t border-gray-200 p-6 flex-shrink-0 z-10 shadow-[0_-5px_15px_rgba(0,0,0,0.02)]" x-show="activeTask?.assigned_worker_id === window.workerId">
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-4 max-w-4xl mx-auto">
+                    
+                    <div class="text-sm font-bold flex items-center gap-2" :class="allItemsPacked ? (isPartialFulfillment ? 'text-indigo-600' : 'text-green-600') : 'text-orange-500'">
+                        <i class="fas text-xl" :class="allItemsPacked ? 'fa-check-circle' : 'fa-exclamation-circle'"></i>
+                        <span x-show="!allItemsPacked">Tick all boxes to unlock dispatch.</span>
+                        <span x-show="allItemsPacked && !isPartialFulfillment">Order completely packed.</span>
+                        <span x-show="allItemsPacked && isPartialFulfillment">Ready for Partial Dispatch.</span>
+                    </div>
+
+                    <button @click="dispatchOrder()" :disabled="!allItemsPacked || isStatusUpdating" 
+                            class="w-full sm:w-auto px-10 py-4 text-white rounded-xl text-sm font-black uppercase tracking-widest shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 transform active:scale-[0.98]"
+                            :class="isPartialFulfillment ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-green-600 hover:bg-green-700'">
+                        <span x-show="!isStatusUpdating">
+                            <i class="fas fa-truck-fast mr-1"></i> <span x-text="isPartialFulfillment ? 'Dispatch Partial' : 'Dispatch Order'"></span>
+                        </span>
+                        <span x-show="isStatusUpdating"><i class="fas fa-spinner fa-spin mr-1"></i> Sending to Dock...</span>
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -124,6 +124,7 @@
                                 </a>
                                 
                                 <p class="text-[10px] font-medium text-gray-400 uppercase tracking-wide">{{ item.category }}</p>
+                                <p class="text-[10px] font-mono text-gray-500 mt-0.5">SKU: {{ item.sku }}</p>
 
                                 <!-- Variant Details Display -->
                                 {% if item.variant_details %}
@@ -137,11 +138,11 @@
                             
                             <div class="text-right">
                                 <!-- Total Price for Item -->
-                                <p class="font-bold text-gray-900 text-sm">₹{{ "{:,.2f}".format(item.price * item.quantity) }}</p>
+                                <p class="font-bold text-gray-900 text-sm">${{ "{:,.2f}".format(item.price * item.quantity) }}</p>
                                 
                                 <!-- Unit Price Display (Only if qty > 1) -->
                                 {% if item.quantity > 1 %}
-                                    <p class="text-[10px] text-gray-500 font-medium mt-0.5">@ ₹{{ "{:,.2f}".format(item.price) }} / unit</p>
+                                    <p class="text-[10px] text-gray-500 font-medium mt-0.5">@ ${{ "{:,.2f}".format(item.price) }} / case</p>
                                 {% endif %}
                             </div>
                         </div>
@@ -206,19 +207,19 @@
                 <div class="space-y-3 mb-6">
                     <div class="flex justify-between text-xs text-gray-600">
                         <span>Subtotal</span>
-                        <span>₹{{ "{:,.2f}".format(subtotal) }}</span>
+                        <span>${{ "{:,.2f}".format(subtotal) }}</span>
                     </div>
                     <div class="flex justify-between text-xs text-gray-600">
-                        <span>Tax (5%)</span>
-                        <span>₹{{ "{:,.2f}".format(tax) }}</span>
+                        <span>Tax ({{ tax_rate_display }}%)</span>
+                        <span>${{ "{:,.2f}".format(tax) }}</span>
                     </div>
                     <div class="flex justify-between text-xs text-gray-600">
                         <span>Shipping</span>
-                        <span class="text-green-600 font-bold">Free</span>
+                        <span class="text-gray-900 font-bold">$10.00</span>
                     </div>
                     <div class="border-t border-dashed border-gray-200 pt-3 flex justify-between items-center mt-2">
                         <span class="font-bold text-gray-900 text-sm">Total</span>
-                        <span class="font-bold text-lg text-slate-900">₹{{ "{:,.2f}".format(total) }}</span>
+                        <span class="font-bold text-lg text-slate-900">${{ "{:,.2f}".format(total + 10) }}</span>
                     </div>
                 </div>
 

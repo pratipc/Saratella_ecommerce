@@ -12,6 +12,7 @@
         <p class="text-xs text-gray-500 mt-1">See the status of your shipment in real-time.</p>
     </div>
 
+    <!-- Search & Info Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
         
         <!-- Left Column: Tracking Form -->
@@ -28,6 +29,7 @@
                             <i class="fas fa-hashtag text-gray-400 text-xs"></i>
                         </div>
                         <input type="text" name="order_number" placeholder="ORD-123456789" required
+                               value="{{ order.order_number if order else '' }}"
                                class="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-sm bg-white">
                     </div>
                 </div>
@@ -73,7 +75,7 @@
             </div>
 
             <!-- Help Link -->
-            <div class="bg-white border border-gray-200 rounded-xl p-5 flex items-center gap-4">
+            <div class="bg-white border border-gray-200 rounded-xl p-5 flex items-center gap-4 shadow-sm">
                 <div class="w-10 h-10 bg-orange-50 text-orange-600 rounded-lg flex items-center justify-center flex-shrink-0">
                     <i class="fas fa-headset text-sm"></i>
                 </div>
@@ -91,11 +93,263 @@
             <div class="px-4 text-center">
                 <p class="text-xs text-gray-400">
                     View all your past purchases in your 
-                    <a href="{{ url_for('user.dashboard') }}" class="text-gray-600 font-bold hover:underline hover:text-gray-900">Order History</a>.
+                    <a href="{{ url_for('user.my_orders') }}" class="text-gray-600 font-bold hover:underline hover:text-gray-900">Order History</a>.
                 </p>
             </div>
             {% endif %}
         </div>
     </div>
+
+    {% if order %}
+    <!-- REAL-TIME TRACKING RESULTS -->
+    <div class="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden transform transition-all duration-500 ease-out" 
+         x-data="trackingLogic('{{ order.order_status }}', '{{ order.order_number }}')" 
+         x-init="init()">
+        
+        <!-- Results Header -->
+        <div class="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row justify-between items-center gap-4">
+            
+            <div>
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Live Status For</p>
+                <h2 class="text-xl font-mono font-black text-slate-900">{{ order.order_number }}</h2>
+            </div>
+            <div class="flex flex-col sm:items-end gap-3 mt-4 sm:mt-0">
+                <div class="text-left sm:text-right">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center sm:justify-end gap-1.5">
+                        <span x-show="isPolling" class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                        <span x-show="!isPolling" class="w-2 h-2 rounded-full bg-gray-300"></span>
+                        System Status
+                    </p>
+                    <!-- Dynamic Live Status Badge -->
+                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide border shadow-sm transition-colors duration-500"
+                          :class="statusBadge.class">
+                        <i :class="statusBadge.icon"></i> <span x-text="statusBadge.text"></span>
+                    </span>
+                </div>
+                
+                <a href="{{ url_for('orders.confirmation', order_number=order.order_number) }}" 
+                   class="text-[10px] font-bold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 border border-blue-200 hover:border-blue-600 px-4 py-2 rounded-md uppercase tracking-widest transition-colors flex items-center gap-2 shadow-sm w-fit">
+                    <i class="fas fa-receipt"></i> View Full Receipt
+                </a>
+            </div>
+        </div>
+
+        <!-- The Progress Bar Area -->
+        <div class="p-8 sm:p-12 relative" x-show="!['cancelled', 'rejected'].includes(dbStatus)">
+            <div class="relative max-w-2xl mx-auto">
+                <!-- Background Line -->
+                <div class="absolute left-0 top-6 transform -translate-y-1/2 w-full h-1.5 bg-gray-100 z-0 rounded-full"></div>
+                
+                <!-- Animated Fill Line -->
+                <div class="absolute left-0 top-6 transform -translate-y-1/2 h-1.5 bg-blue-500 z-0 rounded-full transition-all duration-1000 ease-out"
+                     :style="'width: ' + progressWidth + '%'"></div>
+
+                <!-- Steps Container -->
+                <div class="relative z-10 flex justify-between">
+                    
+                    <!-- Step 1: Confirmed -->
+                    <div class="flex flex-col items-center group w-16">
+                        <div class="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-700 shadow-sm border-2"
+                             :class="step >= 1 ? 'bg-blue-500 border-blue-500 text-white scale-110 shadow-md ring-4 ring-blue-50' : 'bg-white border-gray-200 text-gray-300'">
+                            <i class="fas fa-clipboard-check text-lg"></i>
+                        </div>
+                        <span class="mt-3 text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center transition-colors"
+                              :class="step >= 1 ? 'text-gray-900' : 'text-gray-400'">Confirmed</span>
+                    </div>
+
+                    <!-- Step 2: Processing -->
+                    <div class="flex flex-col items-center group w-16">
+                        <div class="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-700 shadow-sm border-2"
+                             :class="step >= 2 ? 'bg-blue-500 border-blue-500 text-white scale-110 shadow-md ring-4 ring-blue-50' : 'bg-white border-gray-200 text-gray-300'">
+                            <i class="fas fa-box-open text-lg"></i>
+                        </div>
+                        <span class="mt-3 text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center transition-colors"
+                              :class="step >= 2 ? 'text-gray-900' : 'text-gray-400'">Processing</span>
+                    </div>
+
+                    <!-- Step 3: Shipped -->
+                    <div class="flex flex-col items-center group w-16">
+                        <div class="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-700 shadow-sm border-2"
+                             :class="step >= 3 ? 'bg-blue-500 border-blue-500 text-white scale-110 shadow-md ring-4 ring-blue-50' : 'bg-white border-gray-200 text-gray-300'">
+                            <i class="fas fa-truck-fast text-lg"></i>
+                        </div>
+                        <span class="mt-3 text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center transition-colors"
+                              :class="step >= 3 ? 'text-gray-900' : 'text-gray-400'">Shipped</span>
+                    </div>
+
+                    <!-- Step 4: Delivered -->
+                    <div class="flex flex-col items-center group w-16">
+                        <div class="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-700 shadow-sm border-2"
+                             :class="step >= 4 ? 'bg-green-500 border-green-500 text-white scale-110 shadow-md ring-4 ring-green-50' : 'bg-white border-gray-200 text-gray-300'">
+                            <i class="fas fa-house-circle-check text-lg"></i>
+                        </div>
+                        <span class="mt-3 text-[10px] sm:text-xs font-bold uppercase tracking-widest text-center transition-colors"
+                              :class="step >= 4 ? 'text-gray-900' : 'text-gray-400'">Delivered</span>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Cancelled State -->
+            <div x-show="['cancelled', 'rejected'].includes(dbStatus)" class="text-center py-10" x-cloak>
+                <div class="w-16 h-16 bg-red-50 text-red-500 rounded-xl flex items-center justify-center mx-auto mb-4 text-2xl border border-red-100">
+                    <i class="fas fa-times"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-900 mb-1">Order Cancelled</h3>
+                <p class="text-sm text-gray-500">This order has been cancelled and will not be fulfilled.</p>
+            </div>
+        </div>
+
+        <!-- ============================================================== -->
+        <!-- UPGRADED ORDER ITEMS LIST (Exact Item Statuses)                -->
+        <!-- ============================================================== -->
+        <div class="p-6 border-t border-gray-100 bg-white">
+            <h3 class="text-xs font-bold text-gray-400 mb-4 uppercase tracking-widest">Items in this Shipment</h3>
+            <div class="space-y-3">
+                {% for item in items %}
+                <div class="p-4 flex flex-col md:flex-row md:items-center gap-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors">
+                    
+                    <!-- Left: Image & Product Info -->
+                    <div class="flex items-center gap-4 flex-1 min-w-0">
+                        <div class="w-14 h-14 rounded-md border border-gray-200 overflow-hidden bg-white flex-shrink-0 p-1">
+                            {% if item.image_url %}
+                                <img src="{{ item.image_url }}" class="w-full h-full object-contain">
+                            {% else %}
+                                <div class="w-full h-full flex items-center justify-center text-gray-300"><i class="fas fa-image text-xs"></i></div>
+                            {% endif %}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-bold text-gray-900 truncate">{{ item.product_name }}</p>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span class="text-[10px] text-gray-500 font-mono bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">SKU: {{ item.sku }}</span>
+                                {% if item.variant_name %}
+                                    <span class="text-[10px] text-blue-700 font-bold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">{{ item.variant_name }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Middle: Exact Status Badges (FIXED: Handles exact granular DOM breakdowns) -->
+                    <div class="flex flex-wrap items-center gap-2 md:justify-end shrink-0"
+                         x-data='{ 
+                            allocs: {{ item.allocations_json | default("[]", true) | safe }},
+                            orderedQty: {{ item.quantity }},
+                            get totalAlloc() { return this.allocs.reduce((sum, a) => sum + parseInt(a.qty), 0); }
+                         }'>
+                         
+                        <template x-if="allocs.length > 0">
+                            <div class="flex flex-wrap gap-2">
+                                <template x-for="alloc in allocs">
+                                    <!-- THE FIX: Tell Alpine to only render badges that actually have items! -->
+                                    <template x-if="parseInt(alloc.qty) > 0">
+                                        <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-md border shadow-sm flex items-center gap-1.5"
+                                              :class="{
+                                                  'bg-emerald-50 text-emerald-700 border-emerald-200': ['shipped', 'delivered'].includes(alloc.status),
+                                                  'bg-red-50 text-red-700 border-red-200': ['cancelled', 'issue_reported'].includes(alloc.status),
+                                                  'bg-purple-50 text-purple-700 border-purple-200': alloc.status === 'backordered',
+                                                  'bg-blue-50 text-blue-700 border-blue-200': ['processing', 'picking', 'packed', 'released_to_floor', 'allocated'].includes(alloc.status),
+                                                  'bg-yellow-50 text-yellow-700 border-yellow-200': !['shipped', 'delivered', 'cancelled', 'issue_reported', 'backordered', 'processing', 'picking', 'packed', 'released_to_floor', 'allocated'].includes(alloc.status)
+                                              }">
+                                            <i class="fas fa-circle text-[6px] opacity-70"></i> 
+                                            <span x-text="alloc.qty + ' ' + (alloc.status || 'Pending').replace(/_/g, ' ')"></span>
+                                        </span>
+                                    </template>
+                                </template>
+                            </div>
+                        </template>
+                        
+                        <!-- Catch items that haven't been routed to a warehouse yet -->
+                        <template x-if="totalAlloc < orderedQty">
+                            <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-md border shadow-sm bg-yellow-50 text-yellow-700 border-yellow-200 flex items-center gap-1.5">
+                                <i class="fas fa-clock text-[8px] opacity-70"></i> <span x-text="(orderedQty - totalAlloc) + ' Pending Routing'"></span>
+                            </span>
+                        </template>
+                    </div>
+
+                    <!-- Right: Ordered Qty Box -->
+                    <div class="hidden sm:block text-right bg-gray-50 px-4 py-2 rounded border border-gray-100 shrink-0 ml-4">
+                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Ordered</p>
+                        <p class="text-sm font-black text-slate-900">{{ item.quantity }}</p>
+                    </div>
+
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Real-Time Alpine Polling Script -->
+        <script>
+            function trackingLogic(initialStatus, orderNumber) {
+                return {
+                    dbStatus: initialStatus.toLowerCase(),
+                    orderNum: orderNumber,
+                    pollingInterval: null,
+                    isPolling: false,
+
+                    init() {
+                        if (!['delivered', 'cancelled', 'rejected'].includes(this.dbStatus)) {
+                            this.isPolling = true;
+                            this.pollingInterval = setInterval(() => {
+                                this.pollStatus();
+                            }, 5000); 
+                        }
+                    },
+
+                    pollStatus() {
+                        fetch(`/api/orders/status/${this.orderNum}`)
+                            .then(res => res.json())
+                            .then(data => {
+                                if (data.status && data.status.toLowerCase() !== this.dbStatus) {
+                                    this.dbStatus = data.status.toLowerCase();
+                                    
+                                    if (['delivered', 'cancelled', 'rejected'].includes(this.dbStatus)) {
+                                        clearInterval(this.pollingInterval);
+                                        this.isPolling = false;
+                                    }
+                                }
+                            })
+                            .catch(err => console.error('Polling error:', err));
+                    },
+
+                    get step() {
+                        if (['pending', 'pending_approval', 'confirmed'].includes(this.dbStatus)) return 1;
+                        if (this.dbStatus === 'processing') return 2;
+                        if (['shipped', 'partially_shipped'].includes(this.dbStatus)) return 3;
+                        if (this.dbStatus === 'delivered') return 4;
+                        return 0; // Cancelled
+                    },
+
+                    get progressWidth() {
+                        if (this.step <= 1) return 0;
+                        if (this.step === 2) return 33;
+                        if (this.step === 3) return 66;
+                        if (this.step === 4) return 100;
+                        return 0;
+                    },
+
+                    get statusBadge() {
+                        switch(this.dbStatus) {
+                            case 'pending': 
+                            case 'pending_approval':
+                                return { text: 'Pending', class: 'bg-yellow-50 text-yellow-700 border-yellow-200', icon: 'fas fa-clock' };
+                            case 'confirmed': 
+                                return { text: 'Confirmed', class: 'bg-blue-50 text-blue-700 border-blue-200', icon: 'fas fa-clipboard-check' };
+                            case 'processing': 
+                                return { text: 'Processing', class: 'bg-purple-50 text-purple-700 border-purple-200', icon: 'fas fa-box-open' };
+                            case 'partially_shipped': 
+                                return { text: 'Partially Shipped', class: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: 'fas fa-truck-loading' };
+                            case 'shipped': 
+                                return { text: 'Shipped', class: 'bg-green-50 text-green-700 border-green-200', icon: 'fas fa-truck-fast' };
+                            case 'delivered': 
+                                return { text: 'Delivered', class: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: 'fas fa-house-circle-check' };
+                            default: 
+                                return { text: 'Cancelled', class: 'bg-red-50 text-red-700 border-red-200', icon: 'fas fa-times-circle' };
+                        }
+                    }
+                }
+            }
+        </script>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}

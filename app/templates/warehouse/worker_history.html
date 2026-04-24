@@ -1,0 +1,189 @@
+<!-- File: worker_history.html -->
+<!-- Location: /app/templates/warehouse/ -->
+
+{% extends "warehouse/warehouse_base.html" %}
+
+{% block title %}My History - Warehouse Worker{% endblock %}
+
+{% block warehouse_content %}
+<script>
+    // Parse the data from the DB into an Alpine.js friendly state
+    window.dbHistory = {{ tasks | default([]) | tojson | safe }};
+
+    function workerHistoryLogic() {
+        return {
+            searchQuery: '',
+            activeTask: null,
+            
+            // Safely parse the JSON strings aggregated from the database
+            tasks: window.dbHistory.map(t => ({
+                ...t,
+                items: typeof t.items_json === 'string' ? JSON.parse(t.items_json) : (t.items_json || [])
+            })),
+
+            init() {
+                // Auto-select the first order in the list to populate the right pane
+                if (this.tasks.length > 0) {
+                    this.activeTask = this.tasks[0];
+                }
+            },
+
+            get filteredTasks() {
+                if (!this.searchQuery) return this.tasks;
+                const q = this.searchQuery.toLowerCase();
+                return this.tasks.filter(t => t.order_number.toLowerCase().includes(q));
+            },
+
+            selectTask(task) {
+                this.activeTask = task;
+            }
+        }
+    }
+</script>
+
+<div class="max-w-7xl mx-auto px-4 py-6 flex flex-col h-[calc(100vh-6rem)]" x-data="workerHistoryLogic()">
+    
+    <!-- Header -->
+    <div class="mb-6 flex justify-between items-end shrink-0">
+        <div>
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Completed Tasks</h1>
+            <p class="mt-1 text-sm text-gray-500">Review the orders and items you have successfully dispatched.</p>
+        </div>
+        <div class="hidden sm:block text-sm font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-lg shadow-sm">
+            <i class="fas fa-check-circle"></i> <span x-text="tasks.length"></span> Orders Shipped
+        </div>
+    </div>
+
+    <!-- Master-Detail Layout -->
+    <div class="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
+        
+        <!-- ======================================================== -->
+        <!-- LEFT PANE: Search & Task List                            -->
+        <!-- ======================================================== -->
+        <div class="w-full lg:w-1/3 flex flex-col bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden h-[40vh] lg:h-full shrink-0 lg:shrink">
+            
+            <!-- Search Bar -->
+            <div class="p-4 border-b border-gray-100 bg-gray-50/50">
+                <div class="relative">
+                    <i class="fas fa-search absolute left-4 top-3 text-gray-400 text-sm"></i>
+                    <input type="text" x-model="searchQuery" placeholder="Search by Order #..." 
+                           class="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm transition">
+                </div>
+            </div>
+
+            <!-- Scrollable List of Completed Orders -->
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3 bg-slate-50/50">
+                <template x-for="task in filteredTasks" :key="task.order_id">
+                    <div @click="selectTask(task)" 
+                         class="p-4 rounded-xl border cursor-pointer transition-all flex flex-col"
+                         :class="activeTask && activeTask.order_id === task.order_id ? 'bg-emerald-50/50 border-emerald-400 ring-1 ring-emerald-400 shadow-md' : 'bg-white border-gray-200 hover:border-emerald-200 hover:shadow-sm'">
+                        
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="text-xs font-bold font-mono" :class="activeTask && activeTask.order_id === task.order_id ? 'text-emerald-700' : 'text-gray-900'" x-text="task.order_number"></span>
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-100/50 px-2 py-0.5 rounded border border-emerald-200"><i class="fas fa-check"></i> Shipped</span>
+                        </div>
+                        
+                        <div class="flex justify-between items-end mt-auto pt-2 border-t border-gray-100/50">
+                            <div>
+                                <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Completed</p>
+                                <p class="text-xs text-gray-500 font-medium" x-text="task.formatted_date + ' • ' + task.formatted_time"></p>
+                            </div>
+                            <i class="fas fa-chevron-right text-gray-300 text-xs" :class="activeTask && activeTask.order_id === task.order_id ? 'text-emerald-500' : ''"></i>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Empty State -->
+                <div x-show="filteredTasks.length === 0" class="text-center py-10 text-gray-500" x-cloak>
+                    <div class="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <i class="fas fa-box-open text-xl text-gray-400"></i>
+                    </div>
+                    <p class="text-sm font-bold text-gray-900">No completed tasks</p>
+                    <p class="text-xs mt-1">Orders you ship will appear here.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ======================================================== -->
+        <!-- RIGHT PANE: Task Details & Items                         -->
+        <!-- ======================================================== -->
+        <div class="w-full lg:w-2/3 bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-[50vh] lg:h-full overflow-hidden">
+            
+            <template x-if="activeTask">
+                <div class="flex flex-col h-full">
+                    <!-- Order Header -->
+                    <div class="px-6 py-5 border-b border-gray-100 bg-emerald-50/30 flex justify-between items-start sm:items-center flex-col sm:flex-row gap-4 shrink-0">
+                        <div>
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Order Details</p>
+                            <h2 class="text-2xl font-black text-gray-900 font-mono" x-text="activeTask.order_number"></h2>
+                            <p class="text-xs text-gray-500 mt-1"><i class="far fa-clock"></i> Shipped on <span x-text="activeTask.formatted_date + ' at ' + activeTask.formatted_time"></span></p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Items Processed</p>
+                            <span class="text-2xl font-black text-emerald-600" x-text="activeTask.total_items"></span>
+                        </div>
+                    </div>
+
+                    <!-- Items List -->
+                    <div class="flex-1 overflow-y-auto p-6 bg-slate-50/30">
+                        <div class="space-y-4">
+                            <template x-for="(item, index) in activeTask.items" :key="index">
+                                <!-- Dynamic Item Card: Green if fully packed, Amber if short-picked -->
+                                <div class="bg-white border-2 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 shadow-sm relative overflow-hidden transition-colors"
+                                     :class="item.quantity < item.allocated_qty ? 'border-amber-200' : 'border-emerald-200'">
+                                    
+                                    <!-- Decorative Left Bar -->
+                                    <div class="absolute left-0 top-0 bottom-0 w-1"
+                                         :class="item.quantity < item.allocated_qty ? 'bg-amber-400' : 'bg-emerald-400'"></div>
+
+                                    <!-- Status Icon -->
+                                    <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ml-1"
+                                         :class="item.quantity < item.allocated_qty ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'">
+                                        <i class="fas" :class="item.quantity < item.allocated_qty ? 'fa-exclamation-triangle text-xs' : 'fa-check'"></i>
+                                    </div>
+
+                                    <!-- Product Image -->
+                                    <div class="w-14 h-14 bg-gray-50 rounded border border-gray-100 p-1 shrink-0">
+                                        <img :src="item.image_url" class="w-full h-full object-contain">
+                                    </div>
+
+                                    <!-- Product Details -->
+                                    <div class="flex-1 min-w-0">
+                                        <h4 class="text-sm font-bold text-gray-900 truncate" :title="item.product_name" x-text="item.product_name"></h4>
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <span class="text-[10px] font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded" x-text="'SKU: ' + item.sku"></span>
+                                            <span class="text-[10px] font-bold text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded" x-show="item.variant_name" x-text="item.variant_name"></span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Packed vs Allocated Quantity -->
+                                    <div class="text-right mt-3 sm:mt-0 border rounded-lg px-4 py-2 shrink-0 transition-colors"
+                                         :class="item.quantity < item.allocated_qty ? 'bg-amber-50 border-amber-100' : 'bg-emerald-50 border-emerald-100'">
+                                        <p class="text-[9px] font-bold uppercase tracking-widest mb-0.5"
+                                           :class="item.quantity < item.allocated_qty ? 'text-amber-600' : 'text-emerald-600'">Packed / Allocated</p>
+                                        <p class="text-lg font-black" :class="item.quantity < item.allocated_qty ? 'text-amber-700' : 'text-emerald-700'">
+                                            <span x-text="item.quantity"></span>
+                                            <span class="text-sm font-bold opacity-60" x-text="'/ ' + item.allocated_qty"></span>
+                                        </p>
+                                    </div>
+
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Blank State (if no task selected) -->
+            <template x-if="!activeTask">
+                <div class="flex-1 flex flex-col items-center justify-center text-gray-400 p-6 bg-slate-50/30">
+                    <i class="fas fa-history text-4xl mb-4 text-gray-300"></i>
+                    <p class="font-bold text-gray-600">Select an order</p>
+                    <p class="text-sm text-center max-w-xs mt-1">Click on an order from the list to view the items you packed for it.</p>
+                </div>
+            </template>
+            
+        </div>
+    </div>
+</div>
+{% endblock %}

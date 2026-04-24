@@ -1,0 +1,306 @@
+<!-- File: manage_staff.html -->
+<!-- Location: /app/templates/warehouse/ -->
+
+{% extends "warehouse/warehouse_base.html" %}
+
+{% block title %}Manage Staff - Warehouse Portal{% endblock %}
+
+{% block warehouse_content %}
+<script>
+    function staffManagementLogic() {
+        return {
+            staff: [],
+            isLoading: true,
+            searchQuery: '',
+            
+            // Modal state
+            isModalOpen: false,
+            isEditing: false,
+            isSaving: false,
+            formData: {
+                user_id: null,
+                first_name: '',
+                last_name: '',
+                email: '',
+                phone: '',
+                password: ''
+            },
+
+            init() {
+                this.fetchStaff();
+            },
+
+            get filteredStaff() {
+                if (!this.searchQuery) return this.staff;
+                const q = this.searchQuery.toLowerCase();
+                return this.staff.filter(s => 
+                    s.first_name.toLowerCase().includes(q) || 
+                    (s.last_name && s.last_name.toLowerCase().includes(q)) ||
+                    s.email.toLowerCase().includes(q)
+                );
+            },
+
+            fetchStaff() {
+                this.isLoading = true;
+                fetch("{{ url_for('warehouse.api_get_staff') }}")
+                    .then(res => res.json())
+                    .then(data => {
+                        if(data.error) throw new Error(data.error);
+                        this.staff = data.staff || [];
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        if(typeof showToast === 'function') showToast("Failed to load staff list", "error");
+                    })
+                    .finally(() => this.isLoading = false);
+            },
+
+            openAddModal() {
+                this.isEditing = false;
+                this.formData = { user_id: null, first_name: '', last_name: '', email: '', phone: '', password: Math.random().toString(36).slice(-8) };
+                this.isModalOpen = true;
+            },
+
+            openEditModal(worker) {
+                this.isEditing = true;
+                this.formData = { 
+                    user_id: worker.user_id, 
+                    first_name: worker.first_name, 
+                    last_name: worker.last_name || '', 
+                    email: worker.email, 
+                    phone: worker.phone || '', 
+                    password: '' 
+                };
+                this.isModalOpen = true;
+            },
+
+            closeModal() {
+                this.isModalOpen = false;
+                setTimeout(() => {
+                    this.formData = { user_id: null, first_name: '', last_name: '', email: '', phone: '', password: '' };
+                }, 300);
+            },
+
+            saveWorker() {
+                this.isSaving = true;
+                
+                // BULLETPROOF ROUTING: Let Flask generate the exact base API URL
+                // This resolves cleanly to: /api/warehouse/api/staff
+                let targetUrl = "{{ url_for('warehouse.api_add_staff') }}"; 
+                let httpMethod = 'POST';
+
+                // If editing, we safely append the user ID to the base URL for the PUT request
+                if (this.isEditing) {
+                    targetUrl = targetUrl + '/' + this.formData.user_id;
+                    httpMethod = 'PUT';
+                }
+
+                fetch(targetUrl, {
+                    method: httpMethod,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.formData)
+                })
+                .then(async res => {
+                    const data = await res.json().catch(() => null);
+                    if(!res.ok || (data && data.error)) {
+                        throw new Error((data && data.error) || `Server Error: ${res.status}`);
+                    }
+                    return data;
+                })
+                .then(data => {
+                    if(typeof showToast === 'function') showToast(this.isEditing ? "Worker updated successfully" : "Worker added successfully", "success");
+                    this.fetchStaff();
+                    this.closeModal();
+                })
+                .catch(err => {
+                    if(typeof showToast === 'function') showToast(err.message, "error");
+                })
+                .finally(() => this.isSaving = false);
+            },
+
+            toggleStatus(worker) {
+                const action = worker.is_active ? 'deactivate' : 'activate';
+                if(!confirm(`Are you sure you want to ${action} ${worker.first_name}?`)) return;
+
+                // BULLETPROOF ROUTING: Append ID and action to the base API URL
+                const baseApiUrl = "{{ url_for('warehouse.api_get_staff') }}";
+                const targetUrl = baseApiUrl + '/' + worker.user_id + '/status';
+
+                fetch(targetUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_active: !worker.is_active })
+                })
+                .then(async res => {
+                    const data = await res.json().catch(() => null);
+                    if(!res.ok || (data && data.error)) {
+                        throw new Error((data && data.error) || `Server Error: ${res.status}`);
+                    }
+                    return data;
+                })
+                .then(data => {
+                    worker.is_active = !worker.is_active;
+                    if(typeof showToast === 'function') showToast("Status updated", "success");
+                })
+                .catch(err => {
+                    if(typeof showToast === 'function') showToast(err.message, "error");
+                });
+            }
+        }
+    }
+</script>
+
+<div x-data="staffManagementLogic()">
+    
+    <!-- Header Section -->
+    <div class="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Manage Staff</h1>
+            <p class="mt-2 text-sm text-gray-500">
+                View and manage warehouse workers for <strong class="text-gray-700">{{ session.get('warehouse_name', 'your assigned location') }}</strong>.
+            </p>
+        </div>
+        <button @click="openAddModal()" class="inline-flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-5 rounded-lg transition shadow-md whitespace-nowrap">
+            <i class="fas fa-user-plus mr-2"></i> Add New Worker
+        </button>
+    </div>
+
+    <!-- Main Workspace Area: Staff Table -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col relative min-h-[400px]">
+        
+        <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+            <h2 class="text-base font-bold text-gray-900">Assigned Workers</h2>
+            <div class="relative w-64">
+                <i class="fas fa-search absolute left-3 top-2.5 text-gray-400"></i>
+                <input type="text" x-model="searchQuery" placeholder="Search name or email..." class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+            </div>
+        </div>
+        
+        <div x-show="isLoading" class="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center" x-cloak>
+            <i class="fas fa-spinner fa-spin text-3xl text-blue-600 mb-3"></i>
+            <p class="text-sm font-bold text-gray-600">Loading Staff...</p>
+        </div>
+
+        <div class="overflow-x-auto w-full" x-show="!isLoading && filteredStaff.length > 0" x-cloak>
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-white">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Worker</th>
+                        <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Contact</th>
+                        <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-100">
+                    <template x-for="worker in filteredStaff" :key="worker.user_id">
+                        <tr class="hover:bg-gray-50 transition-colors">
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs" x-text="worker.first_name.charAt(0)"></div>
+                                    <div class="text-sm font-bold text-gray-900" x-text="worker.first_name + ' ' + (worker.last_name || '')"></div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-600" x-text="worker.email"></div>
+                                <div class="text-[10px] text-gray-400 font-mono mt-0.5" x-text="worker.phone || 'No phone'"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border" 
+                                      :class="worker.is_active ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'" 
+                                      x-text="worker.is_active ? 'Active' : 'Inactive'"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                <button @click="toggleStatus(worker)" class="text-blue-600 hover:text-blue-800 transition mr-3" :title="worker.is_active ? 'Deactivate Worker' : 'Activate Worker'">
+                                    <i class="fas" :class="worker.is_active ? 'fa-user-slash text-red-500 hover:text-red-700' : 'fa-user-check text-green-500 hover:text-green-700'"></i>
+                                </button>
+                                <button @click="openEditModal(worker)" class="text-gray-400 hover:text-slate-900 transition" title="Edit Worker">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+        
+        <div x-show="!isLoading && filteredStaff.length === 0" class="p-12 flex flex-col items-center justify-center text-center h-full my-auto" x-cloak>
+            <div class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
+                <i class="fas fa-users text-2xl"></i>
+            </div>
+            <h3 class="text-sm font-bold text-gray-900 mb-1">No workers found</h3>
+            <p class="text-sm text-gray-500 max-w-sm" x-text="searchQuery ? 'Try adjusting your search terms.' : 'Add your first warehouse worker to get started.'"></p>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ADD/EDIT WORKER MODAL                      -->
+    <!-- ========================================== -->
+    <div x-show="isModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" aria-labelledby="modal-title" role="dialog" aria-modal="true" x-cloak>
+        
+        <!-- Backdrop -->
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" 
+             x-show="isModalOpen"
+             x-transition.opacity
+             @click="closeModal()"></div>
+
+        <!-- Modal Panel -->
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10 transform transition-all"
+             x-show="isModalOpen"
+             x-transition:enter="ease-out duration-300"
+             x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+             x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+             x-transition:leave="ease-in duration-200"
+             x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+             x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
+            
+            <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
+                <h3 class="text-lg font-bold text-gray-900" id="modal-title" x-text="isEditing ? 'Edit Worker' : 'Add New Worker'"></h3>
+                <button @click="closeModal()" class="text-gray-400 hover:text-gray-700 transition">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <form @submit.prevent="saveWorker" class="p-6">
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">First Name <span class="text-red-500">*</span></label>
+                            <input type="text" x-model="formData.first_name" required class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Last Name</label>
+                            <input type="text" x-model="formData.last_name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Email Address <span class="text-red-500">*</span></label>
+                        <input type="email" x-model="formData.email" required :disabled="isEditing" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition disabled:bg-gray-100 disabled:text-gray-500">
+                        <p x-show="isEditing" class="text-[10px] text-gray-400 mt-1">Email cannot be changed after creation.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Phone Number</label>
+                        <input type="tel" x-model="formData.phone" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+                    </div>
+
+                    <div x-show="!isEditing">
+                        <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Temporary Password <span class="text-red-500">*</span></label>
+                        <input type="text" x-model="formData.password" :required="!isEditing" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+                        <p class="text-[10px] text-gray-400 mt-1">They can change this after their first login.</p>
+                    </div>
+                </div>
+
+                <div class="mt-8 flex gap-3">
+                    <button type="button" @click="closeModal()" class="flex-1 py-2.5 border border-gray-300 text-gray-700 font-bold text-sm rounded-lg hover:bg-gray-50 transition">Cancel</button>
+                    <button type="submit" :disabled="isSaving" class="flex-1 py-2.5 bg-blue-600 text-white font-bold text-sm rounded-lg hover:bg-blue-700 transition shadow-sm disabled:opacity-50 flex justify-center items-center gap-2">
+                        <span x-show="!isSaving" x-text="isEditing ? 'Save Changes' : 'Create Worker'"></span>
+                        <span x-show="isSaving"><i class="fas fa-spinner fa-spin"></i></span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

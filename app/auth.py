@@ -116,9 +116,18 @@ def login():
             guest_session_id = session.get('guest_id')
 
             # Set Session
+            # Set Multi-Tenant Session Variables
             session['user_id'] = user['user_id']
             session['first_name'] = user['first_name']
+            session['last_name'] = user.get('last_name', '')
             session['email'] = user['email']
+            session['is_manager'] = bool(user.get('is_manager'))
+            session['user_type'] = user.get('user_type', 'restaurant')
+            
+            # Tag the user to their specific store/warehouse
+            if user.get('assigned_store_id'):
+                session['warehouse_id'] = user['assigned_store_id']
+                session['warehouse_name'] = user['store_name']
             
             # --- CART PERSISTENCE LOGIC (Login) ---
             if guest_session_id:
@@ -127,7 +136,7 @@ def login():
                     connection.commit()
                     session.pop('guest_id', None)
                     print(f"DEBUG - Merged cart for guest {guest_session_id} to user {user['user_id']}")
-                except Error as e:
+                except Exception as e:
                     print(f"DEBUG - Cart Merge Error: {e}")
             
             flash(f"Welcome back, {user['first_name']}!", "success")
@@ -137,12 +146,21 @@ def login():
             if next_url:
                 return redirect(next_url)
                 
-            return redirect(url_for('user.dashboard'))
+            # NEW: Multi-Tenant Routing
+            if session['user_type'] in ['warehouse', 'warehouse_manager', 'warehouse_worker']:
+                return redirect(url_for('warehouse.dashboard'))
+            elif session['user_type'] == 'restaurant':
+                return redirect(url_for('user.dashboard'))
+            elif session['user_type'] == 'helpdesk':
+                return redirect(url_for('admin.dashboard'))
+            else:
+                return redirect(url_for('user.dashboard')) # Fallback
+                
         else:
             flash("Invalid email or password.", "error")
             return render_template('auth/login.html')
             
-    except Error as e:
+    except Exception as e:
         print(f"DEBUG - Login Error: {e}")
         flash("An unexpected system error occurred. Please try again.", "error")
         return render_template('auth/login.html')

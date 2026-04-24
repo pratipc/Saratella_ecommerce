@@ -1,0 +1,392 @@
+<!-- File: restaurants.html -->
+<!-- Location: /app/templates/admin/ -->
+
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Restaurant Facilities - Saratella Admin{% endblock %}
+
+{% block admin_content %}
+<script>
+    window.dbRestaurants = {{ restaurants | default([]) | tojson | safe }};
+
+    function restaurantLogic() {
+        return {
+            restaurants: window.dbRestaurants,
+            searchQuery: '',
+            
+            // Modal States
+            isModalOpen: false,
+            isBulkModalOpen: false,
+            isSubmitting: false,
+            
+            // Bulk Upload States
+            bulkStatus: 'idle', // 'idle', 'uploading', 'success'
+            bulkResults: { success_count: 0, failed_count: 0, errors: [] },
+            
+            // Single Creation Form
+            form: {
+                restaurant_id: null,
+                restaurant_name: '',
+                restaurant_code: '',
+                address: '',
+                city: '',
+                state: '',
+                zip: '',
+                tax_rate: 0.00
+            },
+            isEditing: false,
+
+            get filteredRestaurants() {
+                if (!this.searchQuery) return this.restaurants;
+                const q = this.searchQuery.toLowerCase();
+                return this.restaurants.filter(r => 
+                    (r.restaurant_code && r.restaurant_code.toLowerCase().includes(q)) || 
+                    (r.restaurant_name && r.restaurant_name.toLowerCase().includes(q)) ||
+                    (r.city && r.city.toLowerCase().includes(q))
+                );
+            },
+
+            openCreateModal() { 
+                this.isEditing = false;
+                this.form = { restaurant_id: null, restaurant_name: '', restaurant_code: '', address: '', city: '', state: '', zip: '', tax_rate: 0.00 };
+                this.isModalOpen = true; 
+            },
+            openEditModal(r) {
+                this.isEditing = true;
+                this.form = { ...r };
+                this.isModalOpen = true;
+            },
+            closeCreateModal() { this.isModalOpen = false; },
+            
+            openBulkModal() { 
+                this.bulkStatus = 'idle';
+                this.bulkResults = { success_count: 0, failed_count: 0, errors: [] };
+                this.isBulkModalOpen = true; 
+            },
+            closeBulkModal() { this.isBulkModalOpen = false; },
+
+            async submitForm() {
+                if (!this.form.restaurant_name || !this.form.restaurant_code) {
+                    if (typeof showToast === 'function') showToast("Please fill in Restaurant Name and Restaurant Code.", "error");
+                    return;
+                }
+                
+                this.isSubmitting = true;
+                const method = this.isEditing ? 'PUT' : 'POST';
+                
+                try {
+                    const res = await fetch("{{ url_for('admin.api_save_restaurant') }}", {
+                        method: method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.form)
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to save restaurant.");
+                    
+                    if (typeof showToast === 'function') showToast(`Restaurant successfully ${this.isEditing ? 'updated' : 'added'}!`, "success");
+                    setTimeout(() => window.location.reload(), 600);
+                } catch(err) {
+                    if (typeof showToast === 'function') showToast(err.message, "error");
+                    this.isSubmitting = false;
+                }
+            },
+            
+            // ========================================================
+            // FULLY FUNCTIONAL BULK UPLOAD ENGINE
+            // ========================================================
+            async handleFileUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                if (!file.name.toLowerCase().endsWith('.csv')) {
+                    if (typeof showToast === 'function') showToast("Please upload a valid .csv file.", "error");
+                    event.target.value = '';
+                    return;
+                }
+
+                this.bulkStatus = 'uploading';
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const res = await fetch("{{ url_for('admin.api_bulk_upload_restaurants') }}", {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to process upload.");
+                    
+                    this.bulkResults = data;
+                    this.bulkStatus = 'success';
+                    
+                } catch(err) {
+                    if (typeof showToast === 'function') showToast(err.message, "error");
+                    this.bulkStatus = 'idle';
+                }
+                
+                event.target.value = ''; 
+            },
+            
+            closeBulkModalAndReload() {
+                this.closeBulkModal();
+                if (this.bulkResults && this.bulkResults.success_count > 0) {
+                    window.location.reload();
+                }
+            }
+        }
+    }
+</script>
+
+<div class="max-w-7xl mx-auto pb-10" x-data="restaurantLogic()">
+    
+    <!-- Page Header -->
+    <div class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Restaurant Facilities</h1>
+            <p class="mt-2 text-sm text-gray-500">Manage franchisee locations, tax logic, and address details across the network.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <button @click="openBulkModal()" class="bg-white border border-gray-200 hover:bg-emerald-50 hover:border-emerald-200 text-gray-700 hover:text-emerald-700 px-4 py-2.5 rounded-lg text-sm font-bold transition shadow-sm flex items-center gap-2">
+                <i class="fas fa-file-excel text-emerald-600"></i> Bulk Import
+            </button>
+            <button @click="openCreateModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition shadow-md flex items-center gap-2">
+                <i class="fas fa-plus"></i> Create Restaurant
+            </button>
+        </div>
+    </div>
+
+    <!-- Search Panel -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 p-4">
+        <div class="relative w-full max-w-md">
+            <i class="fas fa-search absolute left-4 top-3 text-gray-400"></i>
+            <input type="text" x-model="searchQuery" placeholder="Search by Restaurant Name, Code, or City..." class="w-full pl-11 pr-4 py-2.5 bg-gray-50 hover:bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+        </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+        <div class="overflow-x-auto w-full flex-1">
+            <table class="min-w-full divide-y divide-gray-200 text-sm text-left">
+                <thead class="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-sm">
+                    <tr>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Restaurant Code</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Restaurant Name</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Full Address</th>
+                        <!-- NEW: Tax % Column Header -->
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Tax %</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Status</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 bg-white">
+                    <template x-for="r in filteredRestaurants" :key="r.restaurant_id">
+                        <tr class="hover:bg-gray-50/80 transition-colors group">
+                            <!-- Restaurant Code -->
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="font-mono text-xs font-bold bg-gray-100 text-gray-700 px-2 py-1 rounded" x-text="r.restaurant_code"></span>
+                            </td>
+                            
+                            <!-- Restaurant Name -->
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="font-bold text-gray-900" x-text="r.restaurant_name"></span>
+                            </td>
+                            
+                            <!-- Address -->
+                            <td class="px-6 py-4">
+                                <p class="text-xs text-gray-900" x-text="r.address"></p>
+                                <p class="text-[10px] text-gray-500 mt-0.5" x-text="(r.city || '') + ', ' + (r.state || '') + ' ' + (r.zip || '')"></p>
+                            </td>
+
+                            <!-- NEW: Tax % Display -->
+                            <td class="px-6 py-4 text-center whitespace-nowrap">
+                                <span class="font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded border border-blue-100 text-xs" x-text="parseFloat(r.tax_rate || 0).toFixed(2) + '%'"></span>
+                            </td>
+
+                            <!-- Status -->
+                            <td class="px-6 py-4 text-center whitespace-nowrap">
+                                <span class="inline-flex items-center justify-center px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide"
+                                      :class="r.is_active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'"
+                                      x-text="r.is_active ? 'Active' : 'Inactive'"></span>
+                            </td>
+                            
+                            <!-- Action -->
+                            <td class="px-6 py-4 text-right whitespace-nowrap">
+                                <button @click.stop="openEditModal(r)" class="text-gray-400 hover:text-blue-600 transition flex items-center justify-end gap-1 ml-auto cursor-pointer font-bold text-xs" title="Edit Restaurant">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                    
+                    <tr x-show="filteredRestaurants.length === 0" x-cloak>
+                        <td colspan="6" class="px-6 py-12 text-center text-gray-500">
+                            <div class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-300">
+                                <i class="fas fa-store-slash text-2xl"></i>
+                            </div>
+                            <p class="font-bold text-gray-900 mb-1">No restaurants found.</p>
+                            <p class="text-sm">Try adjusting your search or add a new facility.</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL: MANUAL CREATION                     -->
+    <!-- ========================================== -->
+    <div x-show="isModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" x-cloak>
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="closeCreateModal()"></div>
+        
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl relative z-10 overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
+                <h3 class="text-lg font-bold text-gray-900">
+                    <i class="fas fa-store text-blue-500 mr-2"></i> 
+                    <span x-text="isEditing ? 'Edit Restaurant' : 'Add New Restaurant'"></span>
+                </h3>
+                <button @click="closeCreateModal()" class="text-gray-400 hover:text-gray-700 transition w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-200"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <form @submit.prevent="submitForm" class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                
+                <!-- Identification -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-1">Restaurant Name <span class="text-red-500">*</span></label>
+                        <input type="text" x-model="form.restaurant_name" required class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-400" placeholder="e.g. Times Square Flagship">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-1">Restaurant Code <span class="text-red-500">*</span></label>
+                        <input type="text" x-model="form.restaurant_code" required class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono uppercase placeholder-gray-400" placeholder="e.g. NYC-001">
+                    </div>
+                </div>
+
+                <!-- Physical Address -->
+                <div class="space-y-4">
+                    <h4 class="text-sm font-bold text-gray-800 border-b border-gray-100 pb-2">Location & Tax Details</h4>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div class="md:col-span-3">
+                            <label class="block text-xs font-bold text-gray-700 mb-1">Street Address</label>
+                            <input type="text" x-model="form.address" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="123 Main St">
+                        </div>
+                        
+                        <!-- NEW: Tax Rate Input -->
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">Sales Tax (%)</label>
+                            <div class="relative">
+                                <input type="number" step="0.01" x-model="form.tax_rate" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none pr-8" placeholder="8.25">
+                                <span class="absolute right-3 top-2 text-gray-400 font-bold">%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">City</label>
+                            <input type="text" x-model="form.city" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="New York">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">State / Province</label>
+                            <input type="text" x-model="form.state" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="NY">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 mb-1">Zip / Postal Code</label>
+                            <input type="text" x-model="form.zip" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="10001">
+                        </div>
+                    </div>
+                </div>
+
+            </form>
+            
+            <div class="p-4 border-t border-gray-100 bg-gray-50 shrink-0">
+                <button type="button" @click="submitForm" :disabled="isSubmitting" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-sm transition flex justify-center items-center gap-2">
+                    <span x-show="!isSubmitting">
+                        <i class="fas fa-save mr-1"></i> 
+                        <span x-text="isEditing ? 'Save Changes' : 'Create Restaurant'"></span>
+                    </span>
+                    <span x-show="isSubmitting"><i class="fas fa-spinner fa-spin"></i> Saving...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ========================================== -->
+    <!-- MODAL: BULK EXCEL UPLOAD                   -->
+    <!-- ========================================== -->
+    <div x-show="isBulkModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" x-cloak>
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="closeBulkModal()"></div>
+        
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-emerald-50 shrink-0">
+                <h3 class="text-lg font-bold text-emerald-900"><i class="fas fa-file-excel text-emerald-600 mr-2"></i> Bulk Import Restaurants</h3>
+                <button @click="closeBulkModal()" class="text-emerald-400 hover:text-emerald-700 transition w-8 h-8 flex items-center justify-center rounded-md hover:bg-emerald-100"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <div class="p-6">
+                <!-- Status: Idle (Ready to Upload) -->
+                <div x-show="bulkStatus === 'idle'">
+                    <div class="flex justify-between items-center mb-4">
+                        <p class="text-sm text-gray-600">Upload a spreadsheet to bulk-create facilities.</p>
+                        <a href="{{ url_for('admin.download_restaurant_template') }}" class="text-[10px] font-bold uppercase tracking-wider text-emerald-600 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg transition shadow-sm inline-flex items-center">
+                            <i class="fas fa-download mr-1.5"></i> Template
+                        </a>
+                    </div>
+
+                    <div class="w-full border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 hover:bg-emerald-50 hover:border-emerald-300 transition-colors p-10 flex flex-col items-center justify-center relative cursor-pointer group mb-4">
+                        <input type="file" accept=".csv" @change="handleFileUpload($event)" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                        
+                        <div class="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                            <i class="fas fa-cloud-upload-alt text-2xl text-emerald-500"></i>
+                        </div>
+                        <p class="text-sm font-bold text-gray-700">Click or Drag & Drop CSV File</p>
+                        <p class="text-xs text-gray-500 mt-1">.csv formats supported (Download template above)</p>
+                    </div>
+                    
+                    <div class="bg-gray-50 border border-gray-200 rounded p-3 text-[10px] text-gray-500 font-mono">
+                        <span class="font-bold text-gray-700">Supported Formats:</span> Can accept the Standard Template OR the Chipotle formatting (e.g. <span class="text-gray-800">CHP Rest Number</span> & <span class="text-gray-800">Sales Tax %</span>).
+                    </div>
+                </div>
+
+                <!-- Status: Uploading -->
+                <div x-show="bulkStatus === 'uploading'" class="py-12 flex flex-col items-center justify-center" x-cloak>
+                    <i class="fas fa-spinner fa-spin text-4xl text-emerald-500 mb-4"></i>
+                    <h3 class="font-bold text-gray-900 text-lg">Processing Upload...</h3>
+                    <p class="text-sm text-gray-500 mt-1">Validating rows and checking formatting.</p>
+                </div>
+
+                <!-- Status: Success Summary -->
+                <div x-show="bulkStatus === 'success'" class="py-6" x-cloak>
+                    <div class="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-600 border border-emerald-200 shadow-sm">
+                        <i class="fas fa-check text-2xl"></i>
+                    </div>
+                    <h3 class="text-center font-bold text-gray-900 text-lg mb-4">Import Complete</h3>
+                    
+                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+                        <div class="flex justify-between items-center pb-2 border-b border-gray-200">
+                            <span class="text-sm text-gray-600 font-medium">Successfully Imported</span>
+                            <span class="text-sm font-bold text-emerald-600" x-text="bulkResults.success_count + ' facilities'"></span>
+                        </div>
+                        <div class="flex justify-between items-start" x-show="bulkResults.failed_count > 0">
+                            <span class="text-sm text-gray-600 font-medium">Failed Rows</span>
+                            <div class="text-right">
+                                <span class="text-sm font-bold text-red-500 mb-1 block" x-text="bulkResults.failed_count + ' failed'"></span>
+                                <template x-for="(err, index) in bulkResults.errors" :key="index">
+                                    <p class="text-[10px] text-gray-500 mt-0.5" x-text="err"></p>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button @click="closeBulkModalAndReload()" class="w-full mt-6 bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-lg shadow-sm transition">
+                        Done
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

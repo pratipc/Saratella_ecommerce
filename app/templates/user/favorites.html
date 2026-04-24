@@ -1,0 +1,203 @@
+<!-- File: favorites.html -->
+<!-- Location: /app/templates/user/ -->
+
+{% extends "user/user_base.html" %}
+
+{% block title %}My Favorites - Saratella{% endblock %}
+
+{% block user_content %}
+
+<!-- ========================================== -->
+<!-- REUSABLE PRODUCT CARD MACRO                -->
+<!-- ========================================== -->
+{% macro render_product_card(product) %}
+<!-- Product Card -->
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden flex flex-col h-full group">
+    
+    <!-- Image Area (Clickable) -->
+    <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="relative w-full pt-[100%] bg-gray-100 overflow-hidden block">
+        {% if product.image_url %}
+        <img src="{{ product.image_url }}" alt="{{ product.name }}" class="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105">
+        {% else %}
+        <div class="absolute inset-0 flex items-center justify-center text-gray-300">
+            <i class="fas fa-image text-3xl"></i>
+        </div>
+        {% endif %}
+        
+        <!-- Favoriting Toggle Logic Attached to the Heart -->
+        <div class="absolute top-3 right-3 flex flex-col gap-2 transition-opacity duration-300"
+             :class="isFav ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
+             x-data="{
+                 isFav: {{ 'true' if product.is_favorite == 1 else 'false' }},
+                 toggleFav() {
+                     fetch('{{ url_for('user.toggle_favorite') }}', {
+                         method: 'POST',
+                         headers: {'Content-Type': 'application/json'},
+                         body: JSON.stringify({product_id: {{ product.product_id }} })
+                     })
+                     .then(res => {
+                         if (res.status === 401) { window.location.href = '{{ url_for('auth.login') }}'; return null; }
+                         return res.json();
+                     })
+                     .then(data => {
+                         if (data && data.success) {
+                             this.isFav = data.is_favorite === 1;
+                             if(typeof showToast === 'function') showToast(this.isFav ? 'Added to favorites!' : 'Removed from favorites', 'success');
+                             
+                             // If removing from favorites page, optionally reload to clear it
+                             if(!this.isFav && window.location.pathname.includes('favorites')) {
+                                 setTimeout(() => window.location.reload(), 1000);
+                             }
+                         }
+                     })
+                     .catch(err => console.error(err));
+                 }
+             }">
+            <button @click.prevent="toggleFav()" class="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm hover:shadow transition" :class="isFav ? 'text-red-500' : 'text-gray-400 hover:text-red-500'">
+                <i class="text-sm transition-colors" :class="isFav ? 'fas fa-heart text-red-500' : 'far fa-heart'"></i>
+            </button>
+        </div>
+
+        {% if product.stock_quantity <= 0 %}
+        <div class="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center z-10">
+            <span class="bg-red-500 text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full shadow-sm">Out of Stock</span>
+        </div>
+        {% endif %}
+    </a>
+
+    <!-- Product Info Area -->
+    <div class="p-5 flex flex-col flex-1">
+        <div class="mb-1 flex justify-between items-start">
+            <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{{ product.brand_name if product.brand_name else 'Generic' }}</p>
+            <p class="text-[9px] text-gray-400 uppercase tracking-widest">{{ product.category_name if product.category_name else product.category }}</p>
+        </div>
+        
+        <!-- Title Area (Clickable) -->
+        <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="block">
+            <h3 class="text-sm font-bold text-gray-900 leading-tight mb-1 group-hover:text-blue-600 transition-colors line-clamp-2">
+                {{ product.name }}
+            </h3>
+            <!-- Displaying the Variant SKUs (or Base SKU) -->
+            <p class="text-[10px] text-gray-500 font-mono truncate mb-2" title="{{ product.variant_skus if product.variant_skus else product.sku }}">
+                {{ product.variant_skus if product.variant_skus else product.sku }}
+            </p>
+        </a>
+        
+        <div class="mt-auto pt-4 flex items-center justify-between">
+            <div class="flex flex-col">
+                <span class="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">Price</span>
+                <span class="text-base font-extrabold text-gray-900 leading-none">${{ "{:,.2f}".format(product.price) }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add to Cart / View Details Button -->
+    <div class="pt-3 border-t border-gray-50 mt-auto">
+        {% if product.has_variants %}
+            <!-- REDIRECTS TO PRODUCT PAGE -->
+            <div class="p-5 pt-0 mt-auto">
+                <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="relative z-10 w-full py-2.5 rounded-lg border border-slate-900 text-slate-900 text-xs font-bold uppercase tracking-wide hover:bg-slate-900 hover:text-white transition text-center block cursor-pointer shadow-sm hover:shadow-md">
+                    Select Options
+                </a>
+            </div>
+        {% else %}
+            <!-- STANDARD ONE-CLICK ADD TO CART -->
+            {% if product.stock_quantity > 0 %}
+                <div class="p-5 pt-0 mt-auto" 
+                     x-data="{ 
+                         count: parseInt('{{ product.base_cart_quantity | default(0) }}') || 0, 
+                         isLoading: false,
+                         updateQty(qty) {
+                             if (qty > {{ product.stock_quantity }}) {
+                                 if (typeof showToast === 'function') showToast('Not enough stock', 'error');
+                                 return;
+                             }
+                             this.isLoading = true;
+                             fetch('{{ url_for('cart.set_product_quantity') }}', {
+                                 method: 'POST',
+                                 headers: { 'Content-Type': 'application/json' },
+                                 body: JSON.stringify({
+                                     product_id: {{ product.product_id }},
+                                     quantity: qty,
+                                     price: {{ product.price }},
+                                     variant_id: null
+                                 })
+                             })
+                             .then(res => res.json())
+                             .then(data => {
+                                 this.isLoading = false;
+                                 if(data.error) throw new Error(data.error);
+                                 this.count = qty;
+                                 
+                                 window.dispatchEvent(new Event('cartUpdated'));
+
+                                 if (typeof showToast === 'function') {
+                                     if (qty === 0) showToast('Removed from cart', 'success');
+                                     else showToast('Cart updated!', 'success');
+                                 }
+                             })
+                             .catch(err => {
+                                 this.isLoading = false;
+                                 if (typeof showToast === 'function') showToast(err.message, 'error');
+                             });
+                         }
+                     }">
+                    
+                    <div x-show="count === 0">
+                        <button @click.prevent="updateQty(1)" :disabled="isLoading"
+                                class="relative z-10 w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-sm hover:shadow-md flex justify-center items-center gap-2 transform active:scale-[0.98]">
+                            <span x-show="!isLoading" class="flex items-center gap-2"><i class="fas fa-shopping-cart text-white/70"></i> Add to Cart</span>
+                            <span x-show="isLoading"><i class="fas fa-spinner fa-spin"></i></span>
+                        </button>
+                    </div>
+                    <div x-show="count > 0" class="relative z-10 flex items-center justify-between bg-slate-100 rounded-lg p-1 h-[42px] border border-slate-200" x-cloak>
+                        <button @click.prevent="updateQty(count - 1)" :disabled="isLoading" class="w-10 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-minus text-xs"></i></button>
+                        <span class="text-xs font-bold text-slate-900" x-text="count"></span>
+                        <button @click.prevent="updateQty(count + 1)" :disabled="isLoading" class="w-10 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-plus text-xs"></i></button>
+                    </div>
+                </div>
+            {% else %}
+                <div class="p-5 pt-0 mt-auto">
+                    <button disabled class="relative z-10 w-full py-2.5 rounded-lg bg-gray-100 text-gray-400 text-xs font-bold uppercase tracking-wide cursor-not-allowed">
+                        Out of Stock
+                    </button>
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+
+</div>
+{% endmacro %}
+
+
+<div class="max-w-7xl mx-auto">
+    <!-- Header -->
+    <div class="mb-8 border-b border-gray-100 pb-4 flex justify-between items-end">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2"><i class="fas fa-heart text-red-500"></i> My Favorite Items</h1>
+            <p class="mt-1 text-xs text-gray-500 uppercase tracking-wide">Quickly reorder the products you love.</p>
+        </div>
+        <span class="text-xs font-bold text-gray-400 bg-white border border-gray-200 px-3 py-1.5 rounded-lg shadow-sm">{{ products|length }} Items</span>
+    </div>
+
+    <!-- Category Grid -->
+    {% if products and products|length > 0 %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {% for product in products %}
+            {{ render_product_card(product) }}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-20 bg-gray-50 rounded-xl border border-gray-200 border-dashed">
+        <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-3 text-gray-300 shadow-sm">
+            <i class="far fa-heart text-2xl"></i>
+        </div>
+        <p class="font-bold text-gray-900 mb-1">Your favorites list is empty</p>
+        <p class="text-sm text-gray-500 mb-6">Click the heart icon on any product to save it here for quick access.</p>
+        <a href="{{ url_for('user.dashboard') }}" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2.5 rounded-lg text-sm shadow-sm transition">
+            Browse Products
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
