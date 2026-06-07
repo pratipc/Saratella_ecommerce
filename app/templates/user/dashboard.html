@@ -6,337 +6,232 @@
 {% block title %}Dashboard - Saratella{% endblock %}
 
 {% block user_content %}
-    <!-- Alpine Component for Global Modal -->
-    <div x-data="dashboardLogic()">
+
+    <!-- ========================================== -->
+    <!-- REUSABLE PRODUCT CARD MACRO                -->
+    <!-- Preserves your exact existing inline code! -->
+    <!-- ========================================== -->
+    {% macro render_product_card(product) %}
+    <!-- Product Card -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden flex flex-col h-full group">
         
-        <!-- Welcome Header -->
-        <div class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-900">Store</h1>
-            <p class="mt-1 text-xs text-gray-500 uppercase tracking-wide">Welcome, {{ session.get('first_name') if session.get('first_name') else 'Guest' }}.</p>
+        <!-- Image Area (Clickable) -->
+        <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="relative w-full pt-[100%] bg-gray-100 overflow-hidden block">
+            {% if product.image_url %}
+            <img src="{{ product.image_url }}" alt="{{ product.name }}" class="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105">
+            {% else %}
+            <div class="absolute inset-0 flex items-center justify-center text-gray-300">
+                <i class="fas fa-image text-3xl"></i>
+            </div>
+            {% endif %}
+            
+            <!-- Favoriting Toggle Logic Attached to the Heart -->
+            <div class="absolute top-3 right-3 flex flex-col gap-2 transition-opacity duration-300"
+                 :class="isFav ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
+                 x-data="{
+                     isFav: {{ 'true' if product.is_favorite == 1 else 'false' }},
+                     toggleFav() {
+                         fetch('{{ url_for('user.toggle_favorite') }}', {
+                             method: 'POST',
+                             headers: {'Content-Type': 'application/json'},
+                             body: JSON.stringify({product_id: {{ product.product_id }} })
+                         })
+                         .then(res => {
+                             if (res.status === 401) { window.location.href = '{{ url_for('auth.login') }}'; return null; }
+                             return res.json();
+                         })
+                         .then(data => {
+                             if (data && data.success) {
+                                 this.isFav = data.is_favorite === 1;
+                                 if(typeof showToast === 'function') showToast(this.isFav ? 'Added to favorites!' : 'Removed from favorites', 'success');
+                             }
+                         })
+                         .catch(err => console.error(err));
+                     }
+                 }">
+                <button @click.prevent="toggleFav()" class="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm hover:shadow transition" :class="isFav ? 'text-red-500' : 'text-gray-400 hover:text-red-500'">
+                    <i class="text-sm transition-colors" :class="isFav ? 'fas fa-heart text-red-500' : 'far fa-heart'"></i>
+                </button>
+            </div>
+
+            {% if product.stock_quantity <= 0 %}
+            <div class="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center z-10">
+                <span class="bg-red-500 text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full shadow-sm">Out of Stock</span>
+            </div>
+            {% endif %}
+        </a>
+
+        <!-- Product Info Area -->
+        <div class="p-5 flex flex-col flex-1">
+            <div class="mb-1 flex justify-between items-start">
+                <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{{ product.brand_name if product.brand_name else 'Generic' }}</p>
+                <p class="text-[9px] text-gray-400 uppercase tracking-widest">{{ product.category_name if product.category_name else product.category }}</p>
+            </div>
+            
+            <!-- Title Area (Clickable) -->
+            <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="block">
+                <h3 class="text-sm font-bold text-gray-900 leading-tight mb-1 group-hover:text-blue-600 transition-colors line-clamp-2">
+                    {{ product.name }}
+                </h3>
+                <!-- Displaying the Variant SKUs (or Base SKU) -->
+                <p class="text-[10px] text-gray-500 font-mono truncate mb-2" title="{{ product.variant_skus if product.variant_skus else product.sku }}">
+                    {{ product.variant_skus if product.variant_skus else product.sku }}
+                </p>
+            </a>
+            
+            <div class="mt-auto pt-4 flex items-center justify-between">
+                <div class="flex flex-col">
+                    <span class="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">Price</span>
+                    <span class="text-base font-extrabold text-gray-900 leading-none">${{ "{:,.2f}".format(product.price) }}</span>
+                </div>
+            </div>
         </div>
 
-        <!-- CATEGORY RAIL REMOVED: Moved to Shop By Category Page -->
-
-        <!-- Product Grid -->
-        <div>
-            <div class="flex items-center justify-between mb-6 px-1">
-                <h2 class="text-xl font-bold text-gray-900 tracking-tight">Featured Products</h2>
-            </div>
-
-            {% if products %}
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {% for product in products %}
-                <div class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden flex flex-col h-full group"
-                     x-data="{ 
-                        count: {{ product.cart_quantity }}, 
-                        isLoading: false,
-                        updateQty(newQty) {
-                            this.isLoading = true;
-                            if (newQty < 0) newQty = 0;
-                            fetch('{{ url_for('cart.set_product_quantity') }}', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ 
-                                    product_id: {{ product.product_id }}, 
-                                    quantity: newQty, 
-                                    price: {{ product.price }},
-                                    variant_id: null
-                                })
-                            })
-                            .then(res => {
-                                if (!res.ok) return res.json().then(json => { throw new Error(json.error); });
-                                return res.json();
-                            })
-                            .then(() => { 
-                                this.count = newQty; 
-                                this.isLoading = false; 
-                                window.dispatchEvent(new Event('cartUpdated')); 
-                            })
-                            .catch(err => { 
-                                this.isLoading = false; 
-                                showToast(err.message || 'Failed to update cart', 'error');
-                            });
-                        }
-                     }">
-                    
-                    <!-- Image -->
-                    <div class="aspect-[4/3] bg-gray-100 relative overflow-hidden cursor-pointer" onclick="window.location='{{ url_for('user.product_detail', product_id=product.product_id) }}'">
-                        <img src="{{ product.image_url if product.image_url else 'https://via.placeholder.com/400x300?text=No+Image' }}" 
-                             alt="{{ product.name }}" 
-                             class="absolute inset-0 w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500">
-                        
-                        {% if product.cart_quantity > 0 %}
-                        <div class="absolute top-2 right-2 bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm z-10">
-                            IN CART: <span x-text="count"></span>
-                        </div>
-                        {% endif %}
-                    </div>
-
-                    <!-- Content -->
-                    <div class="p-4 flex flex-col flex-1">
-                        <div class="mb-auto">
-                            <div class="flex justify-between items-start mb-2">
-                                <span class="text-[10px] font-bold uppercase tracking-wider text-gray-400 truncate pr-2">{{ product.brand_name if product.brand_name else 'Saratella' }}</span>
-                                <span class="text-sm font-bold text-slate-900 whitespace-nowrap">₹{{ "{:,.2f}".format(product.price) }}</span>
-                            </div>
-                            <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="block">
-                                <h3 class="font-bold text-gray-900 text-sm leading-snug mb-1 hover:text-blue-600 transition-colors line-clamp-2">{{ product.name }}</h3>
-                            </a>
-                            <p class="text-[10px] text-gray-500 uppercase tracking-wide truncate">{{ product.category }}</p>
-                        </div>
-
-                        <!-- Actions -->
-                        <div class="mt-4 pt-4 border-t border-gray-50">
-                            {% if product.has_variants %}
-                                <button @click="openVariantModal({{ product.product_id }}, '{{ product.name|replace("'", "\\'") }}', {{ product.price }}, '{{ product.image_url }}')" 
-                                        class="w-full py-2 bg-white border border-slate-200 hover:border-slate-900 text-slate-700 hover:text-slate-900 text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-sm hover:shadow">
-                                    Select Options
-                                </button>
-                            {% else %}
-                                <div x-show="count === 0">
-                                    <button @click="updateQty(1)" :disabled="isLoading"
-                                            class="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-md hover:shadow-lg flex justify-center items-center gap-2 transform active:scale-[0.98]">
-                                        <span x-show="!isLoading">Add to Cart</span>
-                                        <span x-show="isLoading"><i class="fas fa-spinner fa-spin"></i></span>
-                                    </button>
-                                </div>
-                                <div x-show="count > 0" class="flex items-center justify-between bg-slate-100 rounded-lg p-1 h-9 border border-slate-200">
-                                    <button @click="updateQty(count - 1)" :disabled="isLoading" class="w-8 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-minus text-[10px]"></i></button>
-                                    <span class="text-xs font-bold text-slate-900" x-text="count"></span>
-                                    <button @click="updateQty(count + 1)" :disabled="isLoading" class="w-8 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-plus text-[10px]"></i></button>
-                                </div>
-                            {% endif %}
-                        </div>
-                    </div>
+        <!-- Add to Cart / View Details Button -->
+        <div class="pt-3 border-t border-gray-50 mt-auto">
+            {% if product.has_variants %}
+                <!-- REDIRECTS TO PRODUCT PAGE -->
+                <div class="p-5 pt-0 mt-auto">
+                    <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="relative z-10 w-full py-2.5 rounded-lg border border-slate-900 text-slate-900 text-xs font-bold uppercase tracking-wide hover:bg-slate-900 hover:text-white transition text-center block cursor-pointer shadow-sm hover:shadow-md">
+                        Select Options
+                    </a>
                 </div>
-                {% endfor %}
-            </div>
             {% else %}
-            <div class="text-center py-16 bg-white rounded-xl border border-gray-200 border-dashed">
-                <i class="fas fa-box-open text-gray-300 text-4xl mb-3"></i>
-                <p class="text-gray-500 text-sm">No products available at the moment.</p>
-            </div>
+                <!-- STANDARD ONE-CLICK ADD TO CART -->
+                {% if product.stock_quantity > 0 %}
+                    <div class="p-5 pt-0 mt-auto" 
+                         x-data="{ 
+                             count: parseInt('{{ product.base_cart_quantity | default(0) }}') || 0, 
+                             isLoading: false,
+                             updateQty(qty) {
+                                 if (qty > {{ product.stock_quantity }}) {
+                                     if (typeof showToast === 'function') showToast('Not enough stock', 'error');
+                                     return;
+                                 }
+                                 this.isLoading = true;
+                                 fetch('{{ url_for('cart.set_product_quantity') }}', {
+                                     method: 'POST',
+                                     headers: { 'Content-Type': 'application/json' },
+                                     body: JSON.stringify({
+                                         product_id: {{ product.product_id }},
+                                         quantity: qty,
+                                         price: {{ product.price }},
+                                         variant_id: null
+                                     })
+                                 })
+                                 .then(res => res.json())
+                                 .then(data => {
+                                     this.isLoading = false;
+                                     if(data.error) throw new Error(data.error);
+                                     this.count = qty;
+                                     
+                                     window.dispatchEvent(new Event('cartUpdated'));
+
+                                     if (typeof showToast === 'function') {
+                                         if (qty === 0) showToast('Removed from cart', 'success');
+                                         else showToast('Cart updated!', 'success');
+                                     }
+                                 })
+                                 .catch(err => {
+                                     this.isLoading = false;
+                                     if (typeof showToast === 'function') showToast(err.message, 'error');
+                                 });
+                             }
+                         }">
+                        
+                        <div x-show="count === 0">
+                            <button @click.prevent="updateQty(1)" :disabled="isLoading"
+                                    class="relative z-10 w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-sm hover:shadow-md flex justify-center items-center gap-2 transform active:scale-[0.98]">
+                                <span x-show="!isLoading" class="flex items-center gap-2"><i class="fas fa-shopping-cart text-white/70"></i> Add to Cart</span>
+                                <span x-show="isLoading"><i class="fas fa-spinner fa-spin"></i></span>
+                            </button>
+                        </div>
+                        <div x-show="count > 0" class="relative z-10 flex items-center justify-between bg-slate-100 rounded-lg p-1 h-[42px] border border-slate-200" x-cloak>
+                            <button @click.prevent="updateQty(count - 1)" :disabled="isLoading" class="w-10 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-minus text-xs"></i></button>
+                            <span class="text-xs font-bold text-slate-900" x-text="count"></span>
+                            <button @click.prevent="updateQty(count + 1)" :disabled="isLoading" class="w-10 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-plus text-xs"></i></button>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="p-5 pt-0 mt-auto">
+                        <button disabled class="relative z-10 w-full py-2.5 rounded-lg bg-gray-100 text-gray-400 text-xs font-bold uppercase tracking-wide cursor-not-allowed">
+                            Out of Stock
+                        </button>
+                    </div>
+                {% endif %}
             {% endif %}
         </div>
 
-        <!-- VARIANT SELECTION MODAL -->
-        <div x-show="modalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true" x-cloak>
-            <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity" @click="closeModal()"></div>
+    </div>
+    {% endmacro %}
 
-            <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
-                <div class="relative bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:max-w-2xl w-full border border-gray-100 flex flex-col md:flex-row">
-                    
-                    <!-- Modal Image -->
-                    <div class="md:w-2/5 bg-gray-50 relative min-h-[200px] md:min-h-0">
-                        <img :src="currentVariantImage || modalProduct.image" class="absolute inset-0 w-full h-full object-cover">
-                        <div x-show="isReadyToAdd && isOutOfStock" class="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center">
-                            <span class="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md uppercase tracking-wide">Out of Stock</span>
-                        </div>
-                    </div>
-
-                    <!-- Modal Content -->
-                    <div class="md:w-3/5 p-6 md:p-8 flex flex-col">
-                        <button @click="closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition">
-                            <i class="fas fa-times text-lg"></i>
-                        </button>
-
-                        <h3 class="text-xl font-bold text-gray-900 mb-1 leading-tight" x-text="modalProduct.name"></h3>
-                        <p class="text-lg font-bold text-slate-900 mb-4" x-text="formattedPrice"></p>
-
-                        <!-- Loading State -->
-                        <div x-show="modalLoading" class="py-12 text-center text-gray-300">
-                            <i class="fas fa-spinner fa-spin text-3xl"></i>
-                        </div>
-
-                        <!-- Options -->
-                        <div x-show="!modalLoading" class="space-y-5 flex-1">
-                            <template x-for="attr in attributes" :key="attr.id">
-                                <div>
-                                    <h4 class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2" x-text="attr.name"></h4>
-                                    <div class="flex flex-wrap gap-2">
-                                        <template x-for="opt in attr.options" :key="opt.id">
-                                            <button @click="selectAttribute(attr.id, opt.id)"
-                                                    class="px-3 py-1.5 rounded-md border text-xs font-medium transition-all"
-                                                    :class="selections[attr.id] == opt.id ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'"
-                                                    x-text="opt.name">
-                                            </button>
-                                        </template>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-
-                        <!-- Add Button Area (Dynamic) -->
-                        <div class="mt-8 pt-5 border-t border-gray-100">
-                            <!-- Scenario 1: Variant not selected or Out of Stock -->
-                            <template x-if="!isReadyToAdd || isOutOfStock">
-                                <button disabled
-                                        class="w-full py-3 bg-gray-100 text-gray-400 font-bold rounded-lg cursor-not-allowed text-xs uppercase tracking-wide">
-                                    <span x-text="addButtonText"></span>
-                                </button>
-                            </template>
-
-                            <!-- Scenario 2: Variant Selected, In Stock -->
-                            <template x-if="isReadyToAdd && !isOutOfStock">
-                                <div>
-                                    <!-- Case A: Item NOT in cart (Qty 0) -->
-                                    <button x-show="currentVariantCartQty === 0" 
-                                            @click="updateCartFromModal(1)"
-                                            class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow-md transition text-xs uppercase tracking-wide flex justify-center items-center gap-2 transform active:scale-[0.98]">
-                                        <span>Add to Cart</span>
-                                    </button>
-
-                                    <!-- Case B: Item IN Cart (Qty > 0) -> Show Counter -->
-                                    <div x-show="currentVariantCartQty > 0" class="flex items-center justify-between bg-slate-100 rounded-lg p-1 h-11 border border-slate-200">
-                                        <button @click="updateCartFromModal(currentVariantCartQty - 1)" 
-                                                class="w-12 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition">
-                                            <i class="fas fa-minus text-xs"></i>
-                                        </button>
-                                        
-                                        <div class="text-center">
-                                            <span class="block text-xs font-bold text-slate-900 uppercase tracking-wider">In Cart</span>
-                                            <span class="block text-sm font-bold text-slate-900" x-text="currentVariantCartQty"></span>
-                                        </div>
-                                        
-                                        <button @click="updateCartFromModal(currentVariantCartQty + 1)" 
-                                                class="w-12 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition">
-                                            <i class="fas fa-plus text-xs"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                </div>
+    <div class="space-y-12">
+        
+        <!-- ========================================== -->
+        <!-- FREQUENTLY ORDERED (B2B Priority)          -->
+        <!-- ========================================== -->
+        {% if frequently_ordered and frequently_ordered|length > 0 %}
+        <section>
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <i class="fas fa-history text-blue-500"></i> Frequently Ordered
+                </h2>
             </div>
-        </div>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {% for product in frequently_ordered %}
+                    {{ render_product_card(product) }}
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- ========================================== -->
+        <!-- FAVORITES / SAVED LIST                     -->
+        <!-- ========================================== -->
+        {% if favorites and favorites|length > 0 %}
+        <section>
+            <div class="flex items-center justify-between mb-6 border-t border-gray-100 pt-8">
+                <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <i class="fas fa-heart text-red-500"></i> Your Favorites
+                </h2>
+                <a href="{{ url_for('user.view_favorites') }}" class="text-sm font-bold text-blue-600 hover:text-blue-800 transition">View All</a>
+            </div>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {% for product in favorites[:4] %}
+                    {{ render_product_card(product) }}
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- ========================================== -->
+        <!-- FULL PRODUCT CATALOG                       -->
+        <!-- ========================================== -->
+        <section>
+            <div class="flex items-center justify-between mb-6 {% if session.get('user_id') %}border-t border-gray-100 pt-8{% endif %}">
+                <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <i class="fas fa-th-large text-slate-500"></i> All Products
+                </h2>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {% for product in products %}
+                    {{ render_product_card(product) }}
+                {% endfor %}
+            </div>
+            
+            {% if products|length == 0 %}
+            <div class="text-center py-20 bg-white rounded-xl border border-gray-200 border-dashed">
+                <div class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-300">
+                    <i class="fas fa-box-open text-2xl"></i>
+                </div>
+                <p class="font-bold text-gray-900 mb-1">No products found</p>
+                <p class="text-sm text-gray-500">Check back later for updates.</p>
+            </div>
+            {% endif %}
+        </section>
 
     </div>
-
-    <script>
-        function dashboardLogic() {
-            return {
-                modalOpen: false,
-                modalLoading: false,
-                modalProduct: { id: null, name: '', basePrice: 0, image: '' },
-                attributes: [],
-                variantsMap: {},
-                selections: {},
-                currentVariant: null,
-                notifyEmail: "{{ session.get('email', '') }}",
-
-                openVariantModal(id, name, price, image) {
-                    this.modalProduct = { id, name, basePrice: price, image };
-                    this.modalOpen = true;
-                    this.modalLoading = true;
-                    this.selections = {};
-                    this.currentVariant = null;
-                    
-                    fetch(`/api/user/product/${id}/variant-data`)
-                        .then(res => res.json())
-                        .then(data => {
-                            this.attributes = data.attributes;
-                            this.variantsMap = data.variants_map;
-                            this.modalLoading = false;
-                        })
-                        .catch(() => { this.modalLoading = false; this.closeModal(); showToast("Failed to load options", "error"); });
-                },
-
-                closeModal() { this.modalOpen = false; },
-
-                selectAttribute(attrId, valId) {
-                    this.selections[attrId] = valId;
-                    this.findVariant();
-                },
-
-                findVariant() {
-                    if (Object.keys(this.selections).length !== this.attributes.length) {
-                        this.currentVariant = null;
-                        return;
-                    }
-                    const key = Object.entries(this.selections)
-                        .sort((a, b) => a[0] - b[0])
-                        .map(([k, v]) => `${k}:${v}`)
-                        .join(',');
-                    this.currentVariant = this.variantsMap[key] || null;
-                },
-
-                get isReadyToAdd() {
-                    if (this.modalLoading) return false;
-                    return Object.keys(this.selections).length === this.attributes.length;
-                },
-
-                get isOutOfStock() {
-                    if (!this.isReadyToAdd) return false;
-                    return !this.currentVariant || this.currentVariant.stock <= 0;
-                },
-
-                get formattedPrice() {
-                    const price = this.currentVariant ? this.currentVariant.price : this.modalProduct.basePrice;
-                    return '₹' + price.toLocaleString('en-IN', { minimumFractionDigits: 2 });
-                },
-
-                get currentVariantImage() { return this.currentVariant ? this.currentVariant.image : null; },
-
-                get currentVariantCartQty() {
-                    return this.currentVariant ? (this.currentVariant.cart_quantity || 0) : 0;
-                },
-
-                get addButtonText() {
-                    if (this.isOutOfStock) return 'Out of Stock';
-                    if (!this.isReadyToAdd) return 'Select Options';
-                    return 'Add to Cart';
-                },
-
-                updateCartFromModal(newQty) {
-                    if (!this.currentVariant) return;
-                    
-                    const price = this.currentVariant.price;
-                    const variantId = this.currentVariant.id;
-                    
-                    fetch("{{ url_for('cart.set_product_quantity') }}", {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            product_id: this.modalProduct.id,
-                            quantity: newQty,
-                            price: price,
-                            variant_id: variantId 
-                        })
-                    })
-                    .then(res => {
-                        if (!res.ok) return res.json().then(json => { throw new Error(json.error); });
-                        return res.json();
-                    })
-                    .then(() => {
-                        if (this.currentVariant) {
-                            this.currentVariant.cart_quantity = newQty;
-                        }
-                        window.dispatchEvent(new Event('cartUpdated'));
-                    })
-                    .catch(err => { 
-                        showToast(err.message || 'Failed to update cart', 'error');
-                    });
-                },
-                
-                notifyMe() {
-                    if (!this.notifyEmail) { showToast("Please enter email", 'error'); return; }
-                    fetch('/api/user/product/notify', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email: this.notifyEmail, product_id: this.modalProduct.id, variant_id: this.currentVariant ? this.currentVariant.id : null })
-                    })
-                    .then(res => { 
-                        if(res.ok) { 
-                            showToast("We will notify you!", "success"); 
-                            this.closeModal(); 
-                        } else { 
-                            showToast("Failed to subscribe.", "error"); 
-                        } 
-                    })
-                    .catch(() => showToast("Network error", "error"));
-                }
-            }
-        }
-    </script>
 {% endblock %}

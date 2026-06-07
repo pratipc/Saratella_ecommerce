@@ -1,0 +1,682 @@
+<!-- File: users.html -->
+<!-- Location: /app/templates/admin/ -->
+
+{% extends "admin/admin_base.html" %}
+
+{% block title %}System Users - Saratella Admin{% endblock %}
+
+{% block admin_content %}
+<script>
+    window.dbUsers = {{ users | default([]) | tojson | safe }};
+    window.dbRestaurants = {{ restaurants | default([]) | tojson | safe }};
+    window.dbWarehouses = {{ warehouses | default([]) | tojson | safe }};
+
+    function userManagementLogic() {
+        return {
+            // Data
+            users: window.dbUsers,
+            restaurants: window.dbRestaurants,
+            
+            // View States: 'main' (shows categories/table) or 'form' (shows create/edit page)
+            view: 'main',
+            selectedRole: null, 
+            searchQuery: '',
+            
+            // Form & Submission States
+            isSubmitting: false,
+            isEditing: false,
+            
+            // NEW: Restaurant Picker Modal State
+            isRestaurantModalOpen: false,
+            restaurantSearchQuery: '',
+
+            // Warehouse Picker Modal State
+            isWarehouseModalOpen: false,
+            warehouseSearchQuery: '',
+            
+            // Form Payload
+            form: {
+                user_id: null,
+                first_name: '',
+                last_name: '',
+                email: '',
+                password: '',
+                user_type: 'restaurant',
+                restaurant_id: '',
+                warehouse_id: ''
+            },
+
+            // ----------------------------------------------------
+            // MAIN VIEW LOGIC
+            // ----------------------------------------------------
+            get filteredUsers() {
+                let result = this.users;
+                if (this.selectedRole) {
+                    result = result.filter(u => u.user_type === this.selectedRole);
+                }
+                if (this.searchQuery) {
+                    const q = this.searchQuery.toLowerCase();
+                    result = result.filter(u => 
+                        (u.first_name && u.first_name.toLowerCase().includes(q)) || 
+                        (u.last_name && u.last_name.toLowerCase().includes(q)) ||
+                        (u.email && u.email.toLowerCase().includes(q)) ||
+                        (u.restaurant_name && u.restaurant_name.toLowerCase().includes(q)) ||
+                        (u.warehouse_name && u.warehouse_name.toLowerCase().includes(q))
+                    );
+                }
+                return result;
+            },
+
+            getRoleCount(role) {
+                return this.users.filter(u => u.user_type === role).length;
+            },
+            
+            formatRoleName(role) {
+                if(role === 'restaurant') return 'Restaurant Franchisee';
+                if(role === 'warehouse_manager') return 'Warehouse Manager';
+                if(role === 'warehouse_worker') return 'Warehouse Worker';
+                if(role === 'helpdesk') return 'Helpdesk Agent';
+                return role;
+            },
+
+            // ----------------------------------------------------
+            // FORM PAGE LOGIC
+            // ----------------------------------------------------
+            openCreatePage() { 
+                this.isEditing = false;
+                this.form = { 
+                    user_id: null, first_name: '', last_name: '', 
+                    email: '', password: '', 
+                    user_type: this.selectedRole || 'restaurant', 
+                    restaurant_id: '', warehouse_id: ''
+                };
+                this.restaurantSearchQuery = '';
+                this.warehouseSearchQuery = '';
+                this.view = 'form';
+                window.scrollTo(0,0);
+            },
+            
+            openEditPage(user) {
+                this.isEditing = true;
+                this.form = { 
+                    user_id: user.user_id,
+                    first_name: user.first_name,
+                    last_name: user.last_name,
+                    email: user.email,
+                    password: '', 
+                    user_type: user.user_type,
+                    restaurant_id: user.restaurant_id || '',
+                    warehouse_id: user.store_id || ''
+                };
+                
+                this.restaurantSearchQuery = '';
+                this.warehouseSearchQuery = '';
+                this.view = 'form';
+                window.scrollTo(0,0);
+            },
+
+            closeForm() { 
+                this.view = 'main'; 
+            },
+
+            // ----------------------------------------------------
+            // RESTAURANT MODAL PICKER LOGIC
+            // ----------------------------------------------------
+            get filteredFormRestaurants() {
+                if (!this.restaurantSearchQuery) return this.restaurants.slice(0, 50); 
+                
+                const q = this.restaurantSearchQuery.toLowerCase();
+                return this.restaurants.filter(r => 
+                    (r.restaurant_name && r.restaurant_name.toLowerCase().includes(q)) || 
+                    (r.restaurant_code && r.restaurant_code.toLowerCase().includes(q))
+                ).slice(0, 50);
+            },
+
+            get selectedRestaurant() {
+                if (!this.form.restaurant_id) return null;
+                return window.dbRestaurants.find(r => r.restaurant_id == this.form.restaurant_id) || null;
+            },
+
+            selectFormRestaurant(r) {
+                this.form.restaurant_id = r.restaurant_id;
+                this.restaurantSearchQuery = '';
+                this.isRestaurantModalOpen = false;
+            },
+
+            // ----------------------------------------------------
+            // WAREHOUSE MODAL PICKER LOGIC 
+            // ----------------------------------------------------
+            get filteredWarehouses() {
+                if (this.warehouseSearchQuery === '') return window.dbWarehouses;
+                const q = this.warehouseSearchQuery.toLowerCase();
+                return window.dbWarehouses.filter(w => 
+                    (w.name && w.name.toLowerCase().includes(q)) || 
+                    (w.store_name && w.store_name.toLowerCase().includes(q)) ||
+                    (w.store_code && w.store_code.toLowerCase().includes(q))
+                );
+            },
+
+            get selectedWarehouse() {
+                if (!this.form.warehouse_id) return null;
+                return window.dbWarehouses.find(w => w.store_id == this.form.warehouse_id) || null;
+            },
+
+            selectWarehouse(id) {
+                this.form.warehouse_id = id;
+                this.isWarehouseModalOpen = false;
+                this.warehouseSearchQuery = ''; 
+            },
+
+            // ----------------------------------------------------
+            // API SUBMISSION
+            // ----------------------------------------------------
+            async submitForm() {
+                if (!this.form.first_name || !this.form.email || !this.form.user_type) {
+                    if (typeof showToast === 'function') showToast("Please fill in all required fields.", "error");
+                    return;
+                }
+
+                if (this.form.user_type === 'restaurant' && !this.form.restaurant_id) {
+                    if (typeof showToast === 'function') showToast("You must select a restaurant to tag this user to.", "error");
+                    return;
+                }
+
+                if (['warehouse_manager', 'warehouse_worker'].includes(this.form.user_type) && !this.form.warehouse_id) {
+                    if (typeof showToast === 'function') showToast("You must select a fulfillment node to tag this user to.", "error");
+                    return;
+                }
+                
+                if (!this.isEditing && !this.form.password) {
+                    if (typeof showToast === 'function') showToast("A temporary password is required for new users.", "error");
+                    return;
+                }
+                
+                this.isSubmitting = true;
+                
+                try {
+                    const res = await fetch("{{ url_for('admin.api_save_staff') }}", {
+                        method: this.isEditing ? 'PUT' : 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.form)
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to save user.");
+                    
+                    if (typeof showToast === 'function') showToast(`User successfully ${this.isEditing ? 'updated' : 'created'}!`, "success");
+                    setTimeout(() => window.location.reload(), 600);
+                } catch(err) {
+                    if (typeof showToast === 'function') showToast(err.message, "error");
+                    this.isSubmitting = false;
+                }
+            }
+        }
+    }
+</script>
+
+<div class="max-w-7xl mx-auto pb-10" x-data="userManagementLogic()">
+    
+    <!-- =========================================================================== -->
+    <!-- MAIN VIEW: DIRECTORY & CATEGORIES                                           -->
+    <!-- =========================================================================== -->
+    <div x-show="view === 'main'" x-transition.opacity>
+        <!-- Page Header & Breadcrumbs -->
+        <div class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+                <nav class="flex mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest" x-show="selectedRole" x-cloak>
+                    <a href="#" @click.prevent="selectedRole = null; searchQuery = '';" class="hover:text-blue-600 transition"><i class="fas fa-arrow-left mr-1"></i> Directory</a>
+                    <span class="mx-2">/</span>
+                    <span class="text-gray-900 capitalize" x-text="formatRoleName(selectedRole) + 's'"></span>
+                </nav>
+                
+                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight" x-show="!selectedRole">System Users & Access</h1>
+                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight" x-show="selectedRole" x-text="formatRoleName(selectedRole) + ' Directory'" x-cloak></h1>
+                
+                <p class="mt-2 text-sm text-gray-500" x-show="!selectedRole">Provision user accounts, assign roles, and map franchisee accounts to specific restaurants.</p>
+                <p class="mt-2 text-sm text-gray-500" x-show="selectedRole" x-cloak>Managing accounts assigned to the <span class="font-bold text-gray-700" x-text="formatRoleName(selectedRole)"></span> role.</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button @click="openCreatePage()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition shadow-md flex items-center gap-2">
+                    <i class="fas fa-user-plus"></i> Create User
+                </button>
+            </div>
+        </div>
+
+        <!-- VIEW 1A: CATEGORIES GRID (Roles) -->
+        <div x-show="!selectedRole" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            
+            <!-- Restaurant Franchisees -->
+            <div @click="selectedRole = 'restaurant'" class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md hover:border-blue-300 transition cursor-pointer group flex flex-col h-full">
+                <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xl shadow-sm mb-4 group-hover:scale-110 transition-transform">
+                    <i class="fas fa-store"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-900 mb-1">Restaurants</h3>
+                <p class="text-xs text-gray-500 mb-6 flex-1">Franchisee accounts that place orders against your supply chain network.</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded border border-blue-100" x-text="getRoleCount('restaurant') + ' Users'"></span>
+                    <i class="fas fa-arrow-right text-gray-300 group-hover:text-blue-500 transition-colors"></i>
+                </div>
+            </div>
+
+            <!-- Warehouse Managers -->
+            <div @click="selectedRole = 'warehouse_manager'" class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md hover:border-orange-300 transition cursor-pointer group flex flex-col h-full">
+                <div class="w-12 h-12 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center text-xl shadow-sm mb-4 group-hover:scale-110 transition-transform">
+                    <i class="fas fa-user-tie"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-900 mb-1">Warehouse Managers</h3>
+                <p class="text-xs text-gray-500 mb-6 flex-1">Distribution center leaders overseeing daily shipping and receiving operations.</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <span class="text-xs font-bold text-orange-600 bg-orange-50 px-2.5 py-1 rounded border border-orange-100" x-text="getRoleCount('warehouse_manager') + ' Users'"></span>
+                    <i class="fas fa-arrow-right text-gray-300 group-hover:text-orange-500 transition-colors"></i>
+                </div>
+            </div>
+            
+            <!-- Warehouse Workers -->
+            <div @click="selectedRole = 'warehouse_worker'" class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md hover:border-yellow-300 transition cursor-pointer group flex flex-col h-full">
+                <div class="w-12 h-12 rounded-full bg-yellow-50 text-yellow-600 flex items-center justify-center text-xl shadow-sm mb-4 group-hover:scale-110 transition-transform">
+                    <i class="fas fa-box-open"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-900 mb-1">Warehouse Workers</h3>
+                <p class="text-xs text-gray-500 mb-6 flex-1">On-floor operators fulfilling orders, packing, and reporting short picks.</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <span class="text-xs font-bold text-yellow-600 bg-yellow-50 px-2.5 py-1 rounded border border-yellow-100" x-text="getRoleCount('warehouse_worker') + ' Users'"></span>
+                    <i class="fas fa-arrow-right text-gray-300 group-hover:text-yellow-500 transition-colors"></i>
+                </div>
+            </div>
+
+            <!-- Helpdesk Agents -->
+            <div @click="selectedRole = 'helpdesk'" class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md hover:border-purple-300 transition cursor-pointer group flex flex-col h-full">
+                <div class="w-12 h-12 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center text-xl shadow-sm mb-4 group-hover:scale-110 transition-transform">
+                    <i class="fas fa-headset"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-900 mb-1">Helpdesk</h3>
+                <p class="text-xs text-gray-500 mb-6 flex-1">Customer support agents who manage orders and resolve exceptions.</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <span class="text-xs font-bold text-purple-600 bg-purple-50 px-2.5 py-1 rounded border border-purple-100" x-text="getRoleCount('helpdesk') + ' Users'"></span>
+                    <i class="fas fa-arrow-right text-gray-300 group-hover:text-purple-500 transition-colors"></i>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- VIEW 1B: DATA TABLE (List of Users) -->
+        <div x-show="selectedRole" x-cloak>
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 p-4">
+                <div class="relative w-full max-w-md">
+                    <i class="fas fa-search absolute left-4 top-3 text-gray-400"></i>
+                    <input type="text" x-model="searchQuery" placeholder="Search by Name, Email, or Tagged Location..." class="w-full pl-11 pr-4 py-2.5 bg-gray-50 hover:bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+                <div class="overflow-x-auto w-full flex-1">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm text-left">
+                        <thead class="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-sm">
+                            <tr>
+                                <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">User Details</th>
+                                <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Access Role</th>
+                                <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Tagged Location</th>
+                                <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Status</th>
+                                <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100 bg-white">
+                            <template x-for="u in filteredUsers" :key="u.user_id">
+                                <tr class="hover:bg-gray-50/80 transition-colors group">
+                                    
+                                    <td class="px-6 py-4">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs shrink-0" x-text="(u.first_name[0] + (u.last_name ? u.last_name[0] : '')).toUpperCase()"></div>
+                                            <div>
+                                                <p class="text-sm font-bold text-gray-900" x-text="u.first_name + ' ' + (u.last_name || '')"></p>
+                                                <p class="text-[10px] text-gray-500 mt-0.5" x-text="u.email"></p>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border shadow-sm"
+                                              :class="{
+                                                  'bg-orange-50 text-orange-700 border-orange-200': u.user_type === 'warehouse_manager',
+                                                  'bg-yellow-50 text-yellow-700 border-yellow-200': u.user_type === 'warehouse_worker',
+                                                  'bg-purple-50 text-purple-700 border-purple-200': u.user_type === 'helpdesk',
+                                                  'bg-blue-50 text-blue-700 border-blue-200': u.user_type === 'restaurant',
+                                                  'bg-slate-50 text-slate-700 border-slate-200': u.user_type === 'admin'
+                                              }"
+                                              x-text="formatRoleName(u.user_type)"></span>
+                                    </td>
+                                    
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <template x-if="u.user_type === 'restaurant' && u.restaurant_id">
+                                            <div>
+                                                <p class="text-xs font-bold text-gray-900 flex items-center gap-2">
+                                                    <i class="fas fa-store text-blue-500"></i> <span x-text="u.restaurant_name"></span>
+                                                </p>
+                                                <p class="text-[10px] text-gray-500 font-mono mt-0.5" x-text="'Code: ' + u.restaurant_code"></p>
+                                            </div>
+                                        </template>
+                                        <template x-if="['warehouse_manager', 'warehouse_worker'].includes(u.user_type) && u.store_id">
+                                            <div>
+                                                <p class="text-xs font-bold text-gray-900 flex items-center gap-2">
+                                                    <i class="fas fa-warehouse text-orange-500"></i> <span x-text="u.warehouse_name || u.name"></span>
+                                                </p>
+                                                <p class="text-[10px] text-gray-500 font-mono mt-0.5" x-text="'Node Code: ' + u.store_code"></p>
+                                            </div>
+                                        </template>
+                                        <template x-if="(u.user_type === 'restaurant' && !u.restaurant_id) || (['warehouse_manager', 'warehouse_worker'].includes(u.user_type) && !u.store_id) || ['admin', 'helpdesk'].includes(u.user_type)">
+                                            <span class="text-xs text-gray-400 italic">Not Applicable</span>
+                                        </template>
+                                    </td>
+
+                                    <td class="px-6 py-4 text-center whitespace-nowrap">
+                                        <span class="inline-flex items-center justify-center px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide"
+                                              :class="u.is_active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'"
+                                              x-text="u.is_active ? 'Active' : 'Inactive'"></span>
+                                    </td>
+                                    
+                                    <td class="px-6 py-4 text-right whitespace-nowrap">
+                                        <button @click.stop="openEditPage(u)" class="text-gray-400 hover:text-blue-600 transition flex items-center justify-end gap-1 ml-auto cursor-pointer font-bold text-xs">
+                                            <i class="fas fa-edit"></i> Edit
+                                        </button>
+                                    </td>
+                                </tr>
+                            </template>
+                            
+                            <tr x-show="filteredUsers.length === 0" x-cloak>
+                                <td colspan="5" class="px-6 py-12 text-center text-gray-500">
+                                    <div class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-300">
+                                        <i class="fas fa-users-slash text-2xl"></i>
+                                    </div>
+                                    <p class="font-bold text-gray-900 mb-1">No users found in this category.</p>
+                                    <p class="text-sm">Try adjusting your search query or provision a new user.</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- =========================================================================== -->
+    <!-- FORM VIEW: CREATE / EDIT FULL PAGE                                          -->
+    <!-- =========================================================================== -->
+    <div x-show="view === 'form'" x-transition.opacity x-cloak>
+        
+        <div class="mb-8 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <button @click="closeForm()" class="w-10 h-10 bg-white border border-gray-200 rounded-full flex items-center justify-center text-gray-500 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition shadow-sm">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <div>
+                    <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">
+                        <span x-text="isEditing ? 'Edit System User' : 'Provision New User'"></span>
+                    </h1>
+                    <p class="mt-1 text-sm text-gray-500">Configure credentials, access roles, and facility tagging.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm max-w-4xl">
+            <form @submit.prevent="submitForm">
+                <div class="p-8 space-y-8">
+                    
+                    <!-- Section 1: Identification -->
+                    <div>
+                        <h4 class="text-sm font-bold text-gray-900 border-b border-gray-100 pb-3 mb-5 flex items-center gap-2">
+                            <i class="fas fa-id-badge text-blue-500"></i> Personal Details
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">First Name <span class="text-red-500">*</span></label>
+                                <input type="text" x-model="form.first_name" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-400">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Last Name</label>
+                                <input type="text" x-model="form.last_name" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-400">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 2: Credentials -->
+                    <div>
+                        <h4 class="text-sm font-bold text-gray-900 border-b border-gray-100 pb-3 mb-5 flex items-center gap-2">
+                            <i class="fas fa-key text-emerald-500"></i> Login Credentials
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Email Address <span class="text-red-500">*</span></label>
+                                <input type="email" x-model="form.email" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-400">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">
+                                    Password <span x-show="!isEditing" class="text-red-500">*</span>
+                                </label>
+                                <input type="password" x-model="form.password" :required="!isEditing" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-400" :placeholder="isEditing ? 'Leave blank to keep unchanged' : 'Temporary Password'">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 3: Permissions & Routing -->
+                    <div>
+                        <h4 class="text-sm font-bold text-gray-900 border-b border-gray-100 pb-3 mb-5 flex items-center gap-2">
+                            <i class="fas fa-shield-alt text-purple-500"></i> Access Role & Routing
+                        </h4>
+                        
+                        <div class="w-full md:w-1/2 mb-6">
+                            <label class="block text-xs font-bold text-gray-700 mb-1">Select Access Role <span class="text-red-500">*</span></label>
+                            <select x-model="form.user_type" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white font-bold text-gray-800">
+                                <option value="admin">Global Admin</option>
+                                <option value="helpdesk">Helpdesk Agent</option>
+                                <option value="warehouse_manager">Warehouse Manager</option>
+                                <option value="warehouse_worker">Warehouse Worker</option>
+                                <option value="restaurant">Restaurant Franchisee (B2B Buyer)</option>
+                            </select>
+                        </div>
+
+                        <!-- RESTAURANT MODAL POPUP TRIGGER -->
+                        <div x-show="form.user_type === 'restaurant'" x-collapse>
+                            <div class="p-6 bg-blue-50/50 border border-blue-100 rounded-xl mt-4">
+                                <label class="block text-xs font-bold text-blue-900 mb-1">Tag to Restaurant Facility <span class="text-red-500">*</span></label>
+                                <p class="text-[10px] text-blue-600 mb-3"><i class="fas fa-info-circle"></i> Required. This assigns the user to a specific restaurant location for ordering and delivery.</p>
+                                
+                                <!-- Unselected State -->
+                                <div x-show="!form.restaurant_id" 
+                                     @click="isRestaurantModalOpen = true"
+                                     class="border-2 border-dashed border-blue-300 rounded-xl p-6 text-center hover:bg-white hover:border-blue-500 transition cursor-pointer group shadow-sm bg-blue-50">
+                                    <div class="w-10 h-10 bg-white text-blue-400 border border-blue-200 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:bg-blue-100 group-hover:text-blue-600 transition">
+                                        <i class="fas fa-plus"></i>
+                                    </div>
+                                    <p class="text-sm font-bold text-gray-700 group-hover:text-blue-700 transition">Click to Tag a Restaurant</p>
+                                </div>
+
+                                <!-- Selected State -->
+                                <div x-show="form.restaurant_id" class="border border-blue-200 bg-white rounded-xl p-4 flex items-center justify-between shadow-sm" x-cloak>
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-12 h-12 bg-blue-50 border border-blue-100 text-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+                                            <i class="fas fa-store text-lg"></i>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-bold text-gray-900" x-text="selectedRestaurant ? selectedRestaurant.restaurant_name : ''"></p>
+                                            <p class="text-[10px] text-gray-500 font-mono mt-0.5" x-text="selectedRestaurant ? 'Code: ' + selectedRestaurant.restaurant_code : ''"></p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-1.5">
+                                        <button type="button" @click="isRestaurantModalOpen = true" class="text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-800 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 transition shadow-sm">Change</button>
+                                        <button type="button" @click="form.restaurant_id = ''" class="w-8 h-8 flex items-center justify-center text-red-500 hover:text-red-700 rounded-lg border border-red-200 bg-white hover:bg-red-50 transition shadow-sm"><i class="fas fa-times"></i></button>
+                                    </div>
+                                </div>
+                                
+                                <input type="hidden" x-model="form.restaurant_id" :required="form.user_type === 'restaurant'">
+                            </div>
+                        </div>
+
+                        <!-- WAREHOUSE MODAL POPUP TRIGGER -->
+                        <div x-show="['warehouse_manager', 'warehouse_worker'].includes(form.user_type)" x-collapse>
+                            <div class="p-6 bg-orange-50/50 border border-orange-100 rounded-xl mt-4">
+                                <label class="block text-xs font-bold text-orange-900 mb-1">Assigned Fulfillment Node <span class="text-red-500">*</span></label>
+                                <p class="text-[10px] text-orange-600 mb-3"><i class="fas fa-info-circle"></i> Required. This assigns the warehouse staff member to a specific physical fulfillment center.</p>
+
+                                <!-- Unselected State -->
+                                <div x-show="!form.warehouse_id" 
+                                     @click="isWarehouseModalOpen = true"
+                                     class="border-2 border-dashed border-orange-300 rounded-xl p-6 text-center hover:bg-white hover:border-orange-500 transition cursor-pointer group shadow-sm bg-orange-50">
+                                    <div class="w-10 h-10 bg-white text-orange-400 border border-orange-200 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:bg-orange-100 group-hover:text-orange-600 transition">
+                                        <i class="fas fa-plus"></i>
+                                    </div>
+                                    <p class="text-sm font-bold text-gray-700 group-hover:text-orange-700 transition">Click to Tag a Warehouse Node</p>
+                                </div>
+
+                                <!-- Selected State -->
+                                <div x-show="form.warehouse_id" class="border border-orange-200 bg-white rounded-xl p-4 flex items-center justify-between shadow-sm" x-cloak>
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-12 h-12 bg-orange-50 border border-orange-100 text-orange-600 rounded-xl flex items-center justify-center shadow-sm">
+                                            <i class="fas fa-warehouse text-lg"></i>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-bold text-gray-900" x-text="selectedWarehouse ? (selectedWarehouse.name || selectedWarehouse.store_name) : ''"></p>
+                                            <p class="text-[10px] text-gray-500 font-mono mt-0.5" x-text="selectedWarehouse ? 'Node Code: ' + selectedWarehouse.store_code : ''"></p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-1.5">
+                                        <button type="button" @click="isWarehouseModalOpen = true" class="text-[10px] font-bold uppercase tracking-wider text-orange-600 hover:text-orange-800 px-3 py-2 rounded-lg border border-orange-200 bg-orange-50 hover:bg-orange-100 transition shadow-sm">Change</button>
+                                        <button type="button" @click="form.warehouse_id = ''" class="w-8 h-8 flex items-center justify-center text-red-500 hover:text-red-700 rounded-lg border border-red-200 bg-white hover:bg-red-50 transition shadow-sm"><i class="fas fa-times"></i></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+                
+                <!-- Footer Actions -->
+                <div class="p-6 border-t border-gray-100 bg-gray-50/50 flex justify-end gap-3 rounded-b-2xl">
+                    <button type="button" @click="closeForm()" class="px-6 py-2.5 rounded-lg border border-gray-300 bg-white text-gray-700 font-bold text-sm hover:bg-gray-50 transition shadow-sm">
+                        Cancel
+                    </button>
+                    <button type="submit" :disabled="isSubmitting" class="bg-slate-900 hover:bg-slate-800 text-white font-bold px-8 py-2.5 rounded-lg shadow-sm transition flex items-center gap-2">
+                        <span x-show="!isSubmitting">
+                            <i class="fas fa-save mr-1"></i> 
+                            <span x-text="isEditing ? 'Save Changes' : 'Provision User'"></span>
+                        </span>
+                        <span x-show="isSubmitting"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- =========================================================================== -->
+    <!-- RESTAURANT PICKER MODAL                                                     -->
+    <!-- =========================================================================== -->
+    <div x-show="isRestaurantModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak>
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="isRestaurantModalOpen = false"></div>
+        
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 overflow-hidden flex flex-col max-h-[80vh]">
+            
+            <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center shrink-0">
+                <h3 class="text-base font-bold text-gray-900"><i class="fas fa-store text-blue-500 mr-2"></i> Select Restaurant</h3>
+                <button type="button" @click="isRestaurantModalOpen = false" class="text-gray-400 hover:text-gray-700 transition"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="p-4 border-b border-gray-100 shrink-0 bg-white">
+                <div class="relative">
+                    <i class="fas fa-search absolute left-3.5 top-3 text-gray-400"></i>
+                    <input type="text" x-model="restaurantSearchQuery" placeholder="Search by Restaurant Name or Code..." class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none transition shadow-sm">
+                </div>
+            </div>
+
+            <div class="p-2 overflow-y-auto custom-scrollbar flex-1 bg-gray-50/50">
+                <template x-for="r in filteredFormRestaurants" :key="r.restaurant_id">
+                    <div @click="selectFormRestaurant(r)" 
+                         class="m-2 px-4 py-3 bg-white rounded-xl border cursor-pointer transition flex items-center justify-between group" 
+                         :class="form.restaurant_id === r.restaurant_id ? 'border-blue-500 ring-1 ring-blue-500 shadow-md' : 'border-gray-200 hover:border-blue-300 hover:shadow-sm'">
+                        
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-lg flex items-center justify-center transition" 
+                                 :class="form.restaurant_id === r.restaurant_id ? 'bg-blue-100 text-blue-600' : 'bg-gray-50 text-gray-400 group-hover:bg-blue-50 group-hover:text-blue-500'">
+                                <i class="fas fa-store"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-bold text-gray-900 group-hover:text-blue-700 transition" x-text="r.restaurant_name"></p>
+                                <p class="text-[10px] text-gray-500 font-mono mt-0.5" x-text="'Code: ' + r.restaurant_code + (r.city ? ' • ' + r.city : '')"></p>
+                            </div>
+                        </div>
+                        
+                        <div x-show="form.restaurant_id === r.restaurant_id" class="text-blue-600 text-lg">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                    </div>
+                </template>
+                
+                <div x-show="filteredFormRestaurants.length === 0" class="p-10 text-center">
+                    <div class="w-12 h-12 bg-gray-100 text-gray-300 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <p class="text-sm font-bold text-gray-600">No restaurants found</p>
+                    <p class="text-xs text-gray-400 mt-1">Try adjusting your search criteria.</p>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- =========================================================================== -->
+    <!-- WAREHOUSE PICKER MODAL (Sits above the main form)                           -->
+    <!-- =========================================================================== -->
+    <div x-show="isWarehouseModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak>
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="isWarehouseModalOpen = false"></div>
+        
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 overflow-hidden flex flex-col max-h-[80vh]">
+            
+            <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center shrink-0">
+                <h3 class="text-base font-bold text-gray-900"><i class="fas fa-network-wired text-orange-500 mr-2"></i> Select Fulfillment Node</h3>
+                <button type="button" @click="isWarehouseModalOpen = false" class="text-gray-400 hover:text-gray-700 transition"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="p-4 border-b border-gray-100 shrink-0 bg-white">
+                <div class="relative">
+                    <i class="fas fa-search absolute left-3.5 top-3 text-gray-400"></i>
+                    <input type="text" x-model="warehouseSearchQuery" placeholder="Search by Node Name or Code..." class="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none transition shadow-sm">
+                </div>
+            </div>
+
+            <!-- List (FIXED: Falls back to w.name instead of w.store_name) -->
+            <div class="p-2 overflow-y-auto custom-scrollbar flex-1 bg-gray-50/50">
+                <template x-for="w in filteredWarehouses" :key="w.store_id">
+                    <div @click="selectWarehouse(w.store_id)" 
+                         class="m-2 px-4 py-3 bg-white rounded-xl border cursor-pointer transition flex items-center justify-between group" 
+                         :class="form.warehouse_id === w.store_id ? 'border-orange-500 ring-1 ring-orange-500 shadow-md' : 'border-gray-200 hover:border-orange-300 hover:shadow-sm'">
+                        
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-lg flex items-center justify-center transition" 
+                                 :class="form.warehouse_id === w.store_id ? 'bg-orange-100 text-orange-600' : 'bg-gray-50 text-gray-400 group-hover:bg-orange-50 group-hover:text-orange-500'">
+                                <i class="fas fa-warehouse"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm font-bold text-gray-900 group-hover:text-orange-700 transition" x-text="w.name || w.store_name"></p>
+                                <p class="text-[10px] text-gray-500 font-mono mt-0.5" x-text="'Node Code: ' + w.store_code"></p>
+                            </div>
+                        </div>
+                        
+                        <div x-show="form.warehouse_id === w.store_id" class="text-orange-600 text-lg">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                    </div>
+                </template>
+                
+                <div x-show="filteredWarehouses.length === 0" class="p-10 text-center">
+                    <div class="w-12 h-12 bg-gray-100 text-gray-300 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <p class="text-sm font-bold text-gray-600">No nodes found</p>
+                    <p class="text-xs text-gray-400 mt-1">Try adjusting your search criteria.</p>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+</div>
+{% endblock %}

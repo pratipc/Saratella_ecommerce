@@ -17,6 +17,10 @@ def get_session_id():
         session['guest_id'] = str(uuid.uuid4())
     return session['guest_id']
 
+#def get_current_store_id():
+    """Helper to get store context (Defaults to 1)"""
+    return session.get('store_id', 1)
+
 # --- DASHBOARD "SMART" UPDATE ROUTE ---
 @cart_bp.route('/set_quantity', methods=['POST'])
 def set_product_quantity():
@@ -30,6 +34,7 @@ def set_product_quantity():
     variant_id = data.get('variant_id') 
 
     user_id = session.get('user_id')
+    #store_id = get_current_store_id()
     session_id = None
     if not user_id:
         session_id = get_session_id()
@@ -41,14 +46,14 @@ def set_product_quantity():
     try:
         cursor = connection.cursor()
         
-        # Call the updated stored procedure which now checks stock
+        # Call stored procedure without store_id
         cursor.callproc('CartSetProductQuantity', [
             user_id, 
             session_id, 
             product_id, 
             quantity, 
             price,
-            variant_id 
+            variant_id # Pass store context for inventory check
         ])
         connection.commit()
         
@@ -64,10 +69,7 @@ def set_product_quantity():
 
     except Error as e:
         error_message = str(e)
-        # Check for the custom signal we added in the SQL (SQLSTATE 45000)
-        # Format is usually "1644 (45000): Your Custom Message"
         if "45000" in error_message:
-            # Extract just the message part
             parts = error_message.split(':')
             clean_msg = parts[-1].strip() if len(parts) > 1 else "Insufficient stock available."
             return jsonify({"error": clean_msg}), 400
@@ -78,7 +80,6 @@ def set_product_quantity():
         if connection and connection.is_connected():
             connection.close()
 
-# ... (Keep existing view_cart, get_cart_count, update_quantity, remove_from_cart routes) ...
 @cart_bp.route('/', methods=['GET'])
 def view_cart():
     user_id = session.get('user_id')
@@ -89,6 +90,7 @@ def view_cart():
     subtotal = 0
     tax = 0
     total = 0
+    tax_rate_display = 0.00
 
     try:
         cursor = connection.cursor(dictionary=True)
@@ -96,29 +98,43 @@ def view_cart():
         
         for result in cursor.stored_results():
             cart_items = result.fetchall()
+
+        # NEW: Fetch dynamic tax rate based on user's restaurant mapping
+        tax_multiplier = Decimal('0.00')
+        if user_id:
+            cursor.callproc('GetUserTaxRate', [user_id])
+            for result in cursor.stored_results():
+                tax_row = result.fetchone()
+                if tax_row and tax_row['tax_rate'] is not None:
+                    tax_rate_display = float(tax_row['tax_rate'])
+                    tax_multiplier = Decimal(str(tax_row['tax_rate'])) / Decimal('100')
             
-        # Calculate totals in Python to be safe
-        subtotal = sum(item['price'] * item['quantity'] for item in cart_items)
-        tax = subtotal * Decimal('0.05')
-        total = subtotal + tax
+        # Calculate totals in Python
+        if cart_items:
+            subtotal = sum(Decimal(str(item['price'])) * item['quantity'] for item in cart_items)
+            tax = subtotal * tax_multiplier
+            total = subtotal + tax
 
     except Error as e:
         print(f"Error fetching cart: {e}")
     finally:
         if connection and connection.is_connected():
+            cursor.close()
             connection.close()
 
-    return render_template('cart/view.html', cart_items=cart_items, subtotal=subtotal, tax=tax, total=total)
+    return render_template('cart/view.html', cart_items=cart_items, subtotal=subtotal, tax=tax, total=total, tax_rate_display=tax_rate_display)
 
 @cart_bp.route('/count', methods=['GET'])
 def get_cart_count():
     user_id = session.get('user_id')
     session_id = session.get('guest_id')
+    #store_id = get_current_store_id()
     
     connection = get_db_connection()
     count = 0
     try:
         cursor = connection.cursor()
+        # Updated to accept store_id
         cursor.callproc('GetCartCount', [user_id, session_id])
         for result in cursor.stored_results():
             row = result.fetchone()
@@ -148,15 +164,12 @@ def update_quantity():
     try:
         cursor = connection.cursor(dictionary=True)
         
-        # LOGIC UPDATE: We removed the Python-side stock check.
-        # We now rely entirely on the Stored Procedure 'CartUpdateItem' to check global reservation.
-        
+        # We rely on DB Stored Proc to check inventory/locking.
         cursor.callproc('CartUpdateItem', [cart_item_id, new_quantity, user_id, guest_id])
         connection.commit()
         return jsonify({"message": "Cart updated"}), 200
         
     except Error as e:
-        # Catch the "Stock Locked" error from MySQL
         error_message = str(e)
         if "45000" in error_message:
             parts = error_message.split(':')
@@ -172,7 +185,6 @@ def update_quantity():
 def remove_from_cart():
     data = request.get_json()
     cart_item_id = data.get('cart_item_id')
-    
     user_id = session.get('user_id')
     session_id = session.get('guest_id')
 

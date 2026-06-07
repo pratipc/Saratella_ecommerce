@@ -1,0 +1,144 @@
+<!-- File: warehouse_base.html -->
+<!-- Location: /app/templates/warehouse/ -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Warehouse Portal - Saratella B2B{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FIXED: Added 'defer' so Alpine waits for the dashboard scripts to load -->
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="text-slate-800 antialiased" x-data="{ sidebarOpen: false }">
+
+    <!-- Mobile Sidebar Overlay -->
+    <div x-show="sidebarOpen" class="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm lg:hidden" @click="sidebarOpen = false" x-transition x-cloak></div>
+
+    <!-- Sidebar (FIXED: Removed lg:static so it stays pinned to the left and stops pushing content down) -->
+    <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'" class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transition-transform duration-300 lg:translate-x-0 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
+        
+        <!-- Logo Area -->
+        <div class="h-16 flex items-center px-6 border-b border-gray-100 shrink-0">
+            <a href="{{ url_for('warehouse.dashboard') }}" class="flex items-center gap-3">
+                    <img src="{{ url_for('static', filename='Logo_warehouse.png') }}" alt="Company Logo" class="h-8 w-auto">
+            </a>
+            <button @click="sidebarOpen = false" class="ml-auto lg:hidden text-gray-400 hover:text-gray-900">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Navigation Links -->
+        <div class="flex-1 overflow-y-auto custom-scrollbar py-6 px-4">
+            
+            <!-- Global Links -->
+            <nav class="space-y-1 mb-8">
+                <a href="{{ url_for('warehouse.dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 {% if request.endpoint == 'warehouse.dashboard' %}bg-blue-50 text-blue-700 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %} rounded-lg text-sm transition">
+                    <i class="fas fa-chart-line w-5 text-center"></i> Overview
+                </a>
+            </nav>
+
+            <!-- MANAGER ONLY VIEW -->
+            {% if session.get('user_type') == 'warehouse_manager' %}
+            <p class="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Management</p>
+            <nav class="space-y-1 mb-8">
+                <a href="{{ url_for('warehouse.fulfillment_queue') }}" class="flex items-center gap-3 px-3 py-2.5 {% if request.endpoint == 'warehouse.fulfillment_queue' %}bg-blue-50 text-blue-700 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %} rounded-lg text-sm transition">
+                    <i class="fas fa-clipboard-list w-5 text-center"></i> Master Queue
+                </a>
+                <a href="{{ url_for('warehouse.manage_staff') }}" class="flex items-center gap-3 px-3 py-2.5 text-gray-600 hover:bg-gray-50 hover:text-slate-900 rounded-lg font-medium text-sm transition">
+                    <i class="fas fa-users-cog w-5 text-center"></i> Manage Staff
+                </a>
+            </nav>
+            {% endif %}
+
+            <!-- WORKER ONLY VIEW -->
+            {% if session.get('user_type') == 'warehouse_worker' %}
+            <p class="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">My Tasks</p>
+            <nav class="space-y-1 mb-8">
+                <a href="{{ url_for('warehouse.pick_and_pack') }}" class="flex items-center justify-between px-3 py-2.5 {% if request.endpoint == 'warehouse.pick_and_pack' %}bg-blue-50 text-blue-700 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %} rounded-lg text-sm transition">
+                    <div class="flex items-center gap-3">
+                        <i class="fas fa-dolly w-5 text-center"></i> My Pick List
+                    </div>
+                </a>
+                <a href="{{ url_for('warehouse.worker_history') }}" class="flex items-center gap-3 px-3 py-2.5 {% if request.endpoint == 'warehouse.worker_history' %}bg-blue-50 text-blue-700 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %} rounded-lg text-sm transition">
+                    <i class="fas fa-history w-5 text-center"></i> My History
+                </a>
+            </nav>
+            {% endif %}
+
+            <!-- Manager Only Exceptions & Staff Sections -->
+            {% if session.get('user_type') == 'warehouse_manager' %}
+                <p class="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Exceptions & Audit</p>
+                <nav class="space-y-1 mb-8">
+                    <a href="{{ url_for('warehouse.exceptions_queue') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition {% if request.endpoint == 'warehouse.exceptions_queue' %}bg-red-50 text-red-700 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %}">
+                        <i class="fas fa-exclamation-triangle w-5 text-center {% if request.endpoint == 'warehouse.exceptions_queue' %}text-red-600{% else %}text-red-400{% endif %}"></i> Short Picks
+                    </a>
+                    <a href="{{ url_for('warehouse.api_get_exceptions_history') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition {% if request.endpoint == 'warehouse.exceptions_history' %}bg-slate-100 text-slate-800 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %}">
+                        <i class="fas fa-history w-5 text-center text-slate-500"></i> Audit Log
+                    </a>
+                    <a href="{{ url_for('warehouse.backorders_queue') }}" class="flex items-center gap-3 px-3 py-2.5 {% if request.endpoint == 'warehouse.backorders_queue' %}bg-purple-50 text-purple-700 font-bold{% else %}text-gray-600 hover:bg-gray-50 hover:text-slate-900 font-medium{% endif %} rounded-lg text-sm transition">
+                        <i class="fas fa-history w-5 text-center {% if request.endpoint == 'warehouse.backorders_queue' %}text-purple-600{% else %}text-purple-400{% endif %}"></i> Backorder Allocations
+                    </a>
+                </nav>
+            {% endif %}
+        </div>
+
+        <!-- User Profile Area -->
+        <div class="p-4 border-t border-gray-100 bg-gray-50/50 shrink-0">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold shadow-sm shrink-0 relative">
+                    {{ session.get('first_name', 'W')[0] | upper }}
+                    <!-- Small badge indicating Role -->
+                    <div class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center text-[8px]
+                                {% if session.get('user_type') == 'warehouse_manager' %}bg-purple-500 text-white{% else %}bg-green-500 text-white{% endif %}">
+                        <i class="fas {% if session.get('user_type') == 'warehouse_manager' %}fa-crown{% else %}fa-user{% endif %}"></i>
+                    </div>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm font-bold text-gray-900 truncate">{{ session.get('first_name', 'Warehouse') }} {{ session.get('last_name', 'Staff') }}</p>
+                    <p class="text-[10px] text-gray-500 uppercase tracking-widest truncate font-bold">
+                        {{ 'Manager' if session.get('user_type') == 'warehouse_manager' else 'Packer' }}
+                    </p>
+                </div>
+            </div>
+            <a href="{{ url_for('auth.logout') }}" class="w-full flex items-center justify-center gap-2 py-2 border border-gray-300 rounded-md text-xs font-bold text-gray-700 hover:bg-gray-100 transition shadow-sm bg-white">
+                <i class="fas fa-sign-out-alt"></i> Logout
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col min-h-screen min-w-0 lg:pl-64">
+        
+        <!-- Mobile Header -->
+        <header class="lg:hidden bg-white border-b border-gray-200 h-16 flex items-center justify-between px-4 shadow-sm z-30 sticky top-0 shrink-0">
+            <div class="flex items-center gap-3">
+                  <button @click="sidebarOpen = true" class="text-gray-500 hover:text-gray-900 focus:outline-none">
+                    <i class="fas fa-bars text-lg"></i>
+                </button>
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="Company Logo" class="h-8 w-auto">
+            </div>
+            <div class="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs">
+                {{ session.get('first_name', 'W')[0] | upper }}
+            </div>
+        </header>
+
+        <!-- Dynamic Content injected here -->
+        <main class="flex-1 p-4 sm:p-6 lg:p-8 w-full max-w-7xl mx-auto">
+            {% block warehouse_content %}{% endblock %}
+        </main>
+    </div>
+
+</body>
+</html>

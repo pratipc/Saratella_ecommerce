@@ -1,0 +1,456 @@
+<!-- File: order_routing_detail.html -->
+<!-- Location: /app/templates/admin/ -->
+
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Route Order {{ order.order_number }} - Admin{% endblock %}
+
+{% block admin_content %}
+<style>
+    .compact-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .compact-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .compact-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    .compact-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+</style>
+
+<script>
+    window.dbOrder = {{ order | tojson | safe }};
+    window.dbItems = {{ items | default([]) | tojson | safe }};
+
+    function routingBuilderLogic() {
+        return {
+            order: window.dbOrder,
+            isSubmitting: false,
+            
+            // Search and Filter states for the items list
+            searchQuery: '',
+            filterStatus: 'all', // 'all', 'unrouted', 'routed'
+            
+            // Modal States for Warehouse Selection
+            isWarehouseModalOpen: false,
+            activeItem: null,
+            activeAlloc: null,
+            warehouseSearchQuery: '',
+            
+            items: window.dbItems.map(item => {
+                let stock = [];
+                try { stock = typeof item.stock_availability === 'string' ? JSON.parse(item.stock_availability) : item.stock_availability; } catch(e){}
+                
+                // NEW: Safely parse existing historical allocations
+                let existingAllocations = [];
+                try { existingAllocations = typeof item.existing_allocations === 'string' ? JSON.parse(item.existing_allocations) : (item.existing_allocations || []); } catch(e){}
+                
+                return {
+                    ...item,
+                    stock: stock,
+                    existing_allocations: existingAllocations,
+                    // If not fully allocated, start with one empty routing row
+                    allocations: item.total_allocated < item.ordered_qty ? [{ store_id: '', qty: item.ordered_qty - item.total_allocated }] : []
+                };
+            }),
+
+            // Modified to use object reference directly instead of index (safer for filtered lists)
+            addAllocationRow(item) {
+                const remaining = this.getRemainingUnrouted(item);
+                item.allocations.push({ store_id: '', qty: remaining > 0 ? remaining : 0 });
+            },
+
+            removeAllocationRow(item, allocIndex) {
+                item.allocations.splice(allocIndex, 1);
+            },
+
+            // ⚡ SMART FEATURE: Automatically picks the first store with enough stock
+            autoRouteItem(item) {
+                const remaining = this.getRemainingUnrouted(item);
+                if (remaining <= 0) return;
+
+                // Find a store with enough stock to fulfill the remaining amount completely
+                const capableStore = item.stock.find(s => parseInt(s.stock) >= remaining);
+                
+                if (capableStore) {
+                    // Clear empty placeholders and add the auto-filled row
+                    item.allocations = item.allocations.filter(a => a.store_id !== '');
+                    item.allocations.push({ store_id: capableStore.store_id, qty: remaining });
+                    if (typeof showToast === 'function') showToast("Auto-routed successfully.", "success");
+                } else {
+                    if (typeof showToast === 'function') showToast("No single node has enough stock. Manual split required.", "warning");
+                }
+            },
+
+            // Modal Logic
+            openWarehouseModal(item, alloc) {
+                this.activeItem = item;
+                this.activeAlloc = alloc;
+                this.warehouseSearchQuery = '';
+                this.isWarehouseModalOpen = true;
+            },
+            
+            selectWarehouse(store) {
+                if (this.activeAlloc) {
+                    this.activeAlloc.store_id = store.store_id;
+                }
+                this.isWarehouseModalOpen = false;
+            },
+            
+            get filteredModalWarehouses() {
+                if (!this.activeItem || !this.activeItem.stock) return [];
+                const q = this.warehouseSearchQuery.toLowerCase();
+                return this.activeItem.stock.filter(s => 
+                    (s.store_name && s.store_name.toLowerCase().includes(q)) ||
+                    (s.store_code && s.store_code.toLowerCase().includes(q))
+                );
+            },
+
+            getRemainingUnrouted(item) {
+                const pendingAllocations = item.allocations.reduce((sum, a) => sum + (parseInt(a.qty) || 0), 0);
+                return item.ordered_qty - item.total_allocated - pendingAllocations;
+            },
+
+            get fullyRoutedCount() {
+                return this.items.filter(item => this.getRemainingUnrouted(item) === 0).length;
+            },
+
+            get progressPercentage() {
+                if (this.items.length === 0) return 0;
+                return Math.round((this.fullyRoutedCount / this.items.length) * 100);
+            },
+
+            // Computes the filtered list based on search and tabs
+            get filteredItems() {
+                let result = this.items;
+                
+                if (this.filterStatus === 'unrouted') {
+                    result = result.filter(item => this.getRemainingUnrouted(item) > 0);
+                } else if (this.filterStatus === 'routed') {
+                    result = result.filter(item => this.getRemainingUnrouted(item) === 0);
+                }
+
+                if (this.searchQuery) {
+                    const q = this.searchQuery.toLowerCase();
+                    result = result.filter(item => 
+                        (item.product_name && item.product_name.toLowerCase().includes(q)) || 
+                        (item.sku && item.sku.toLowerCase().includes(q))
+                    );
+                }
+                
+                return result;
+            },
+
+            get isPlanValid() {
+                let valid = true;
+                this.items.forEach(item => {
+                    if (this.getRemainingUnrouted(item) !== 0) valid = false;
+                    item.allocations.forEach(a => {
+                        if (a.store_id) {
+                            const storeStock = item.stock.find(s => String(s.store_id) === String(a.store_id));
+                            if (!storeStock || parseInt(a.qty) > parseInt(storeStock.stock)) valid = false;
+                        } else {
+                            valid = false; 
+                        }
+                    });
+                });
+                return valid;
+            },
+
+            async submitRoutingPlan() {
+                if (!this.isPlanValid) {
+                    if (typeof showToast === 'function') showToast("Please resolve all allocation errors before saving.", "error");
+                    return;
+                }
+                
+                this.isSubmitting = true;
+                
+                let payload = [];
+                this.items.forEach(item => {
+                    item.allocations.forEach(a => {
+                        if (a.store_id && parseInt(a.qty) > 0) {
+                            payload.push({
+                                order_item_id: item.order_item_id,
+                                store_id: parseInt(a.store_id),
+                                qty: parseInt(a.qty)
+                            });
+                        }
+                    });
+                });
+
+                try {
+                    const res = await fetch(`/admin/api/orders/${this.order.order_id}/allocate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ allocations: payload })
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to save routing plan.");
+                    
+                    if (typeof showToast === 'function') showToast("Order successfully routed to network nodes!", "success");
+                    setTimeout(() => window.location.href = "/admin/global-orders", 1000);
+                    
+                } catch(err) {
+                    if (typeof showToast === 'function') showToast(err.message, "error");
+                    this.isSubmitting = false;
+                }
+            }
+        }
+    }
+</script>
+
+<div class="max-w-6xl mx-auto pb-10 flex flex-col h-[calc(100vh-6rem)]" x-data="routingBuilderLogic()">
+    
+    <!-- Page Header & Breadcrumbs -->
+    <div class="mb-4 shrink-0">
+        <nav class="flex mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+            <a href="{{ url_for('admin.global_orders') }}" class="hover:text-blue-600 transition"><i class="fas fa-arrow-left mr-1"></i> Global Orders</a>
+            <span class="mx-2">/</span>
+            <span class="text-gray-900">Route Fulfillment</span>
+        </nav>
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h1 class="text-2xl font-extrabold text-gray-900 tracking-tight">Order Routing Command</h1>
+                <p class="mt-1 text-sm text-gray-500">Allocate <strong x-text="items.length"></strong> items across the network.</p>
+            </div>
+            
+            <!-- Global Progress Bar -->
+            <div class="w-full md:w-72 bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
+                <div class="flex justify-between text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1.5">
+                    <span>Overall Progress</span>
+                    <span x-text="fullyRoutedCount + ' / ' + items.length + ' Routed'" :class="fullyRoutedCount === items.length ? 'text-emerald-600' : 'text-blue-600'"></span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-1.5">
+                    <div class="h-1.5 rounded-full transition-all duration-700" 
+                         :class="progressPercentage === 100 ? 'bg-emerald-500' : 'bg-blue-500'" 
+                         :style="'width: ' + progressPercentage + '%'"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Workspace (Split Layout) -->
+    <div class="flex-1 flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+        
+        <!-- Workspace Toolbar (Sticky) -->
+        <div class="bg-gray-50 border-b border-gray-200 px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-4 shrink-0">
+            <!-- Filters -->
+            <div class="flex items-center gap-2 bg-gray-200/50 p-1 rounded-lg">
+                <button @click="filterStatus = 'all'" class="px-3 py-1.5 text-xs font-bold rounded-md transition-colors" :class="filterStatus === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'">All Items</button>
+                <button @click="filterStatus = 'unrouted'" class="px-3 py-1.5 text-xs font-bold rounded-md transition-colors" :class="filterStatus === 'unrouted' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'">Needs Routing</button>
+                <button @click="filterStatus = 'routed'" class="px-3 py-1.5 text-xs font-bold rounded-md transition-colors" :class="filterStatus === 'routed' ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'">Completed</button>
+            </div>
+            
+            <!-- Search -->
+            <div class="relative w-full sm:w-72">
+                <i class="fas fa-search absolute left-3 top-2.5 text-gray-400 text-sm"></i>
+                <input type="text" x-model="searchQuery" placeholder="Search SKU or Item Name..." class="w-full pl-9 pr-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition shadow-sm">
+            </div>
+        </div>
+
+        <!-- Scrollable Items List -->
+        <div class="flex-1 overflow-y-auto compact-scrollbar bg-slate-50/50 p-4 space-y-4">
+            
+            <template x-for="item in filteredItems" :key="item.order_item_id">
+                <!-- Compact Item Card -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col lg:flex-row transition-all hover:border-blue-300">
+                    
+                    <!-- Left: Item Info (Fixed Width) -->
+                    <div class="lg:w-1/3 p-4 bg-gray-50/30 border-b lg:border-b-0 lg:border-r border-gray-100 flex items-start gap-4">
+                        <div class="w-12 h-12 bg-white rounded border border-gray-200 p-1 shrink-0 shadow-sm">
+                            <img :src="item.image_url" class="w-full h-full object-contain">
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <h3 class="text-sm font-bold text-gray-900 truncate" :title="item.product_name" x-text="item.product_name"></h3>
+                            <p class="text-[10px] text-gray-500 font-mono mt-0.5 truncate" x-text="item.sku + (item.variant_name ? ' • ' + item.variant_name : '')"></p>
+                            
+                            <div class="mt-2 flex items-center gap-3">
+                                <span class="text-xs font-bold text-gray-700 bg-gray-100 px-2 py-1 rounded">Qty: <span x-text="item.ordered_qty"></span></span>
+                                <template x-if="getRemainingUnrouted(item) === 0">
+                                    <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-600"><i class="fas fa-check-circle"></i> Routed</span>
+                                </template>
+                                <template x-if="getRemainingUnrouted(item) > 0">
+                                    <span class="text-[10px] font-bold uppercase tracking-wider text-red-500"><i class="fas fa-exclamation-circle"></i> <span x-text="getRemainingUnrouted(item)"></span> Unrouted</span>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Routing Logic (Fluid Width) -->
+                    <div class="flex-1 p-4">
+                        
+                        <!-- FULLY ALLOCATED: Show Historic Allocations -->
+                        <template x-if="item.total_allocated >= item.ordered_qty">
+                            <div class="h-full flex flex-col justify-center text-sm font-bold bg-emerald-50/50 rounded-lg border border-emerald-100 border-dashed p-4">
+                                <div class="flex items-center text-emerald-700 mb-3">
+                                    <i class="fas fa-box-check mr-2 text-lg"></i> Item successfully routed to:
+                                </div>
+                                <div class="space-y-2">
+                                    <template x-for="(ea, idx) in item.existing_allocations" :key="'ea_full_'+idx">
+                                        <div class="flex justify-between items-center bg-white border border-emerald-100 rounded-lg px-3 py-2 shadow-sm">
+                                            <div class="flex items-center gap-2">
+                                                <i class="fas fa-warehouse text-emerald-400 text-[10px]"></i>
+                                                <span class="text-xs font-bold text-gray-800" x-text="ea.store_name"></span>
+                                            </div>
+                                            <span class="text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded" x-text="ea.qty + ' Units'"></span>
+                                        </div>
+                                    </template>
+                                    <!-- Fallback just in case -->
+                                    <template x-if="!item.existing_allocations || item.existing_allocations.length === 0">
+                                        <p class="text-xs font-normal text-emerald-600 italic">Dispatched to network nodes.</p>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- NOT FULLY ALLOCATED: Show Partial Routing and New Input Rows -->
+                        <template x-if="item.total_allocated < item.ordered_qty">
+                            <div class="space-y-3">
+                                <!-- PARTIALLY ALLOCATED: Show existing completed routes -->
+                                <template x-if="item.existing_allocations && item.existing_allocations.length > 0">
+                                    <div class="mb-4 space-y-2">
+                                        <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-1">Already Routed</h4>
+                                        <template x-for="(ea, idx) in item.existing_allocations" :key="'ea_part_'+idx">
+                                            <div class="flex justify-between items-center bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 shadow-sm opacity-80">
+                                                <div class="flex items-center gap-2">
+                                                    <i class="fas fa-check-circle text-emerald-500 text-[10px]"></i>
+                                                    <span class="text-xs font-bold text-gray-600" x-text="ea.store_name"></span>
+                                                </div>
+                                                <span class="text-[10px] font-black text-gray-600 bg-white border border-gray-200 px-2 py-0.5 rounded" x-text="ea.qty + ' Units'"></span>
+                                            </div>
+                                        </template>
+                                        <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mt-4 mb-2 border-b border-gray-100 pb-1">Pending Routing</h4>
+                                    </div>
+                                </template>
+
+                                <!-- NEW Allocation Rows -->
+                                <template x-for="(alloc, aIndex) in item.allocations" :key="aIndex">
+                                    <div class="flex items-center gap-2">
+                                        <!-- Warehouse Select Button (Triggers Modal) -->
+                                        <div class="flex-1">
+                                            <button type="button" @click="openWarehouseModal(item, alloc)" 
+                                                    class="w-full px-3 py-2 border rounded-lg text-sm text-left flex justify-between items-center transition shadow-sm"
+                                                    :class="!alloc.store_id ? 'border-red-300 bg-red-50 text-red-900' : 'border-gray-300 bg-white hover:bg-gray-50 focus:ring-2 focus:ring-blue-500'">
+                                                <span class="truncate" x-text="alloc.store_id ? (item.stock.find(s => String(s.store_id) === String(alloc.store_id))?.store_code + ' - ' + item.stock.find(s => String(s.store_id) === String(alloc.store_id))?.store_name) : '-- Select Warehouse Node --'"></span>
+                                                <i class="fas fa-chevron-down text-gray-400 text-[10px]"></i>
+                                            </button>
+                                        </div>
+                                        
+                                        <!-- Qty Input -->
+                                        <div class="w-20">
+                                            <input type="number" min="1" x-model="alloc.qty" class="w-full px-2 py-2 border border-gray-300 rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-500 outline-none font-bold shadow-sm">
+                                        </div>
+                                        
+                                        <!-- Remove Row -->
+                                        <button @click="removeAllocationRow(item, aIndex)" class="w-8 h-8 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition shrink-0" title="Remove Split">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+
+                                        <!-- Warning Icon -->
+                                        <template x-if="alloc.store_id">
+                                            <div class="w-5 flex justify-center shrink-0">
+                                                <i class="fas fa-exclamation-triangle text-red-500" 
+                                                   x-show="parseInt(alloc.qty) > parseInt(item.stock.find(s => String(s.store_id) === String(alloc.store_id))?.stock || 0)" 
+                                                   title="Exceeds stock!"></i>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <!-- Actions Toolbar -->
+                                <div class="pt-1 flex items-center justify-between">
+                                    <div class="flex gap-2">
+                                        <button type="button" @click="addAllocationRow(item)" x-show="getRemainingUnrouted(item) > 0" class="text-[10px] font-bold uppercase tracking-wider text-gray-600 hover:text-blue-700 bg-gray-100 hover:bg-blue-50 border border-gray-200 hover:border-blue-200 px-3 py-1.5 rounded transition">
+                                            <i class="fas fa-plus mr-1"></i> Add Split
+                                        </button>
+                                        
+                                        <!-- SMART ROUTE BUTTON -->
+                                        <button type="button" @click="autoRouteItem(item)" x-show="getRemainingUnrouted(item) > 0" class="text-[10px] font-bold uppercase tracking-wider text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded transition shadow-sm flex items-center gap-1">
+                                            <i class="fas fa-magic"></i> Auto-Route
+                                        </button>
+                                    </div>
+                                    
+                                    <p class="text-xs font-bold text-red-500" x-show="getRemainingUnrouted(item) < 0">
+                                        <i class="fas fa-exclamation-circle"></i> Over-allocated!
+                                    </p>
+                                </div>
+                            </div>
+                        </template>
+                        
+                    </div>
+                </div>
+            </template>
+            
+            <!-- Empty Search State -->
+            <div x-show="filteredItems.length === 0" class="text-center py-12" x-cloak>
+                <div class="w-12 h-12 bg-gray-200 text-gray-400 rounded-full flex items-center justify-center mx-auto mb-3 text-xl"><i class="fas fa-search"></i></div>
+                <h3 class="text-sm font-bold text-gray-900">No items match your filter</h3>
+                <p class="text-xs text-gray-500 mt-1">Try changing the tabs or clearing the search box.</p>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Final Save Action (Always pinned at bottom) -->
+    <div class="bg-slate-900 rounded-xl border border-slate-800 shadow-lg p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0 z-20">
+        <div class="text-white flex items-center gap-4">
+            <div class="w-10 h-10 bg-slate-800 rounded-lg flex items-center justify-center text-blue-400 text-lg border border-slate-700"><i class="fas fa-network-wired"></i></div>
+            <div>
+                <p class="text-sm font-bold">Finalize Order Routing</p>
+                <p class="text-xs text-slate-400" x-show="!isPlanValid">Please resolve errors (red items) to continue.</p>
+                <p class="text-xs text-emerald-400" x-show="isPlanValid">All items allocated and ready for dispatch.</p>
+            </div>
+        </div>
+        <button @click="submitRoutingPlan()" :disabled="!isPlanValid || isSubmitting" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white font-bold px-8 py-3 rounded-lg shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+            <span x-show="!isSubmitting"><i class="fas fa-paper-plane mr-1"></i> Dispatch to Nodes</span>
+            <span x-show="isSubmitting"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
+        </button>
+    </div>
+
+    <!-- Warehouse Selection Modal -->
+    <div x-show="isWarehouseModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" x-cloak>
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="isWarehouseModalOpen = false"></div>
+        
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg relative z-10 overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
+                <h3 class="text-lg font-bold text-gray-900">
+                    <i class="fas fa-warehouse text-blue-500 mr-2"></i> Select Fulfillment Node
+                </h3>
+                <button @click="isWarehouseModalOpen = false" class="text-gray-400 hover:text-gray-700 transition w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-200">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="p-4 border-b border-gray-100 bg-white shrink-0">
+                <div class="relative">
+                    <i class="fas fa-search absolute left-3 top-2.5 text-gray-400 text-sm"></i>
+                    <input type="text" x-model="warehouseSearchQuery" placeholder="Search warehouse by name or code..." class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition shadow-sm">
+                </div>
+            </div>
+            
+            <div class="overflow-y-auto p-4 custom-scrollbar flex-1 bg-slate-50/50">
+                <div class="space-y-2">
+                    <template x-for="st in filteredModalWarehouses" :key="st.store_id">
+                        <button @click="selectWarehouse(st)" :disabled="st.stock <= 0" class="w-full text-left p-3 rounded-xl border transition-all flex items-center justify-between"
+                                :class="st.stock <= 0 ? 'bg-gray-50 border-gray-200 opacity-60 cursor-not-allowed' : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-md cursor-pointer'">
+                            <div>
+                                <p class="text-sm font-bold text-gray-900" x-text="st.store_name"></p>
+                                <p class="text-[10px] text-gray-500 font-mono mt-0.5" x-text="'Code: ' + st.store_code"></p>
+                            </div>
+                            <div class="text-right">
+                                <span class="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider"
+                                      :class="st.stock > 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'"
+                                      x-text="'Stock: ' + st.stock"></span>
+                            </div>
+                        </button>
+                    </template>
+                    <div x-show="filteredModalWarehouses.length === 0" class="text-center py-10 text-gray-500">
+                        <div class="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-400">
+                            <i class="fas fa-warehouse text-xl"></i>
+                        </div>
+                        <p class="text-sm font-bold text-gray-900">No warehouses found.</p>
+                        <p class="text-xs mt-1">Adjust your search query.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

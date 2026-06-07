@@ -3,163 +3,174 @@
 
 {% extends "user/user_base.html" %}
 
-{% block title %}My Orders - Saratella{% endblock %}
+{% block title %}My Orders - Saratella B2B{% endblock %}
 
 {% block user_content %}
-<div class="h-full flex flex-col" x-data="orderFilterLogic()">
+<div class="max-w-5xl mx-auto" x-data="orderHistoryLogic()">
     
-    <!-- Header with Search & Filter -->
-    <div class="mb-6 flex-shrink-0">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
-            <div>
-                <h1 class="text-2xl font-bold text-gray-900">Order History</h1>
-                <p class="text-xs text-gray-500 mt-1">Track return, or buy things again.</p>
-            </div>
-            
-            <!-- Filters Toolbar -->
-            <div class="flex flex-col sm:flex-row gap-3">
-                <!-- Search Input -->
-                <div class="relative">
-                    <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
-                    <input type="text" 
-                           x-model="searchQuery" 
-                           placeholder="Search order ID..." 
-                           class="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-full sm:w-64 placeholder-gray-400 shadow-sm transition">
-                </div>
-                
-                <!-- Date Filter -->
-                <input type="date" 
-                       x-model="dateFilter" 
-                       class="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm cursor-pointer">
-                       
-                <!-- Clear Button -->
-                <button x-show="searchQuery || dateFilter" 
-                        @click="clearFilters()"
-                        x-transition
-                        class="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-bold uppercase tracking-wide transition">
-                    Clear
-                </button>
-            </div>
-        </div>
+    <!-- Page Header -->
+    <div class="mb-8 border-b border-gray-100 pb-6">
+        <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Order History</h1>
+        <p class="mt-2 text-sm text-gray-500">View your past purchases, track current shipments, and quickly reorder supplies.</p>
     </div>
 
     {% if orders %}
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex-1 flex flex-col min-h-0">
-        <div class="overflow-y-auto custom-scrollbar">
-            <table class="min-w-full divide-y divide-gray-100">
-                <thead class="bg-gray-50/50 sticky top-0 z-10 backdrop-blur-sm">
-                    <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Order ID</th>
-                        <th scope="col" class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Date Placed</th>
-                        <th scope="col" class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</th>
-                        <th scope="col" class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total</th>
-                        <th scope="col" class="px-6 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-wider">Action</th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-100">
-                    {% for order in orders %}
-                    <!-- Row with x-show for filtering -->
-                    <tr class="hover:bg-gray-50 transition-colors group"
-                        x-show="shouldShow('{{ order.order_number }}', '{{ order.created_at.strftime('%Y-%m-%d') }}', '{{ order.order_status }}')"
-                        x-transition:enter="transition ease-out duration-200"
-                        x-transition:enter-start="opacity-0 transform scale-95"
-                        x-transition:enter-end="opacity-100 transform scale-100">
-                        
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <span class="text-sm font-mono font-medium text-gray-900">#{{ order.order_number }}</span>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <div class="flex items-center text-xs text-gray-500">
-                                <i class="far fa-calendar-alt mr-2 text-gray-400"></i>
-                                {{ order.created_at.strftime('%b %d, %Y') }}
-                            </div>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border
-                                {% if order.order_status == 'delivered' %}bg-green-50 text-green-700 border-green-100
-                                {% elif order.order_status == 'shipped' %}bg-blue-50 text-blue-700 border-blue-100
-                                {% elif order.order_status == 'cancelled' %}bg-red-50 text-red-700 border-red-100
-                                {% else %}bg-yellow-50 text-yellow-700 border-yellow-100{% endif %}">
-                                <span class="w-1.5 h-1.5 rounded-full mr-1.5 
-                                    {% if order.order_status == 'delivered' %}bg-green-500
-                                    {% elif order.order_status == 'shipped' %}bg-blue-500
-                                    {% elif order.order_status == 'cancelled' %}bg-red-500
-                                    {% else %}bg-yellow-500{% endif %}"></span>
-                                {{ order.order_status }}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                            ₹{{ "{:,.2f}".format(order.total_amount) }}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm">
-                            <a href="{{ url_for('orders.confirmation', order_number=order.order_number) }}" class="text-blue-600 hover:text-blue-800 font-medium text-xs uppercase tracking-wide group-hover:underline">
-                                View Details
-                            </a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            
-            <!-- Empty State for Search -->
-            <div x-show="isEmptyResults" class="text-center py-12" x-cloak>
-                <i class="fas fa-search text-gray-200 text-3xl mb-3"></i>
-                <p class="text-gray-500 text-sm">No orders match your search.</p>
-                <button @click="clearFilters()" class="text-blue-600 font-bold text-xs mt-2 hover:underline">Clear Filters</button>
+        <div class="space-y-6">
+            {% for order in orders %}
+            <!-- Modern Order Card -->
+            <div class="bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden">
+                
+                <!-- Card Header -->
+                <div class="bg-gray-50/50 px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+                        <div>
+                        <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Order #</p>
+                        <p class="text-sm font-mono text-blue-600 font-semibold">{{ order.order_number }}</p>
+                    </div>
+                </div>
+                
+                <!-- Dynamic Status Badge (Updated for precise warehouse statuses) -->
+                <div>
+                    {% if order.order_status in ['pending', 'pending_approval'] %}
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200 text-xs font-bold uppercase tracking-wide">
+                            <i class="fas fa-clock text-[10px]"></i> Pending
+                        </span>
+                    {% elif order.order_status == 'confirmed' %}
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-xs font-bold uppercase tracking-wide">
+                            <i class="fas fa-clipboard-check text-[10px]"></i> Confirmed
+                        </span>
+                    {% elif order.order_status == 'processing' %}
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200 text-xs font-bold uppercase tracking-wide">
+                            <i class="fas fa-box-open text-[10px]"></i> Processing
+                        </span>
+                    {% elif order.order_status == 'partially_shipped' %}
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold uppercase tracking-wide">
+                            <i class="fas fa-truck-loading text-[10px]"></i> Partially Shipped
+                        </span>
+                    {% elif order.order_status == 'shipped' %}
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-50 text-green-700 border border-green-200 text-xs font-bold uppercase tracking-wide">
+                            <i class="fas fa-truck-fast text-[10px]"></i> Shipped
+                        </span>
+                    {% elif order.order_status == 'delivered' %}
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold uppercase tracking-wide">
+                            <i class="fas fa-house-circle-check text-[10px]"></i> Delivered
+                        </span>
+                    {% else %}
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-50 text-red-700 border border-red-200 text-xs font-bold uppercase tracking-wide">
+                            <i class="fas fa-times-circle text-[10px]"></i> Cancelled
+                        </span>
+                    {% endif %}
+                </div>
             </div>
 
-        </div>
-    </div>
-    {% else %}
-    <div class="flex-1 flex items-center justify-center p-8">
-        <div class="text-center max-w-sm mx-auto p-8 bg-white border border-dashed border-gray-200 rounded-2xl">
-            <div class="bg-gray-50 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4 text-gray-400">
-                <i class="fas fa-shopping-bag text-2xl"></i>
+            <!-- Card Body (Store Info & Quick Actions) -->
+                <div class="px-6 py-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                    
+                    <div class="flex-1">
+                        <!-- If you have store_name available in the order object -->
+                        {% if order.store_name %}
+                        <div class="flex items-center gap-2 text-sm text-gray-600 mb-2">
+                            <i class="fas fa-store text-gray-400"></i>
+                            <span>Fulfilled by: <strong class="text-gray-900">{{ order.store_name }}</strong></span>
+                        </div>
+                        {% endif %}
+                        <p class="text-xs text-gray-500">Includes items shipped to your corporate address. You can reorder these specific variants with one click.</p>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                        <!-- View Details (Fixed to correctly POST the order number) -->
+                        <form action="{{ url_for('orders.track_order') }}" method="POST" class="flex-1 md:flex-none">
+                            <input type="hidden" name="order_number" value="{{ order.order_number }}">
+                            <button type="submit" class="w-full px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-xs font-bold uppercase tracking-wide hover:bg-gray-50 hover:text-blue-600 transition shadow-sm text-center">
+                                Track / View
+                            </button>
+                        </form>
+                        
+                        <!-- REORDER BUTTON (Connected to Alpine.js) -->
+                        <button @click="cloneOrder({{ order.order_id }})" 
+                                :disabled="loadingOrderId === {{ order.order_id }}"
+                                class="flex-1 md:flex-none px-5 py-2.5 bg-slate-900 text-white rounded-lg text-xs font-bold uppercase tracking-wide hover:bg-slate-800 transition shadow-md flex items-center justify-center gap-2 transform active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed min-w-[120px]">
+                            
+                            <!-- Normal State -->
+                            <template x-if="loadingOrderId !== {{ order.order_id }}">
+                                <span class="flex items-center gap-2"><i class="fas fa-sync-alt"></i> Reorder</span>
+                            </template>
+                            
+                            <!-- Loading State -->
+                            <template x-if="loadingOrderId === {{ order.order_id }}">
+                                <span class="flex items-center gap-2"><i class="fas fa-spinner fa-spin"></i> Loading...</span>
+                            </template>
+                        </button>
+                    </div>
+
+                </div>
             </div>
-            <h3 class="text-gray-900 font-bold text-sm mb-1">No orders placed yet</h3>
-            <p class="text-xs text-gray-500 mb-6">Looks like you haven't made your choice yet.</p>
-            <a href="{{ url_for('user.dashboard') }}" class="inline-flex items-center px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg shadow-sm transition transform hover:-translate-y-0.5">
-                Start Shopping
+            {% endfor %}
+        </div>
+    {% else %}
+        <!-- Empty State -->
+        <div class="bg-white border border-dashed border-gray-300 rounded-2xl p-12 text-center flex flex-col items-center justify-center shadow-sm">
+            <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-5 text-gray-300">
+                <i class="fas fa-receipt text-3xl"></i>
+            </div>
+            <h2 class="text-lg font-extrabold text-gray-900 mb-2">No Orders Yet</h2>
+            <p class="text-sm text-gray-500 max-w-md mx-auto mb-8">You haven't placed any B2B orders yet. Start exploring our catalog to make your first bulk purchase.</p>
+            <a href="{{ url_for('user.dashboard') }}" class="px-6 py-3 bg-slate-900 text-white rounded-xl text-sm font-bold uppercase tracking-wide hover:bg-slate-800 transition shadow-md">
+                Browse Products
             </a>
         </div>
-    </div>
     {% endif %}
+
 </div>
 
+<!-- Alpine.js Logic for the Cloning Engine -->
 <script>
-    function orderFilterLogic() {
+    function orderHistoryLogic() {
         return {
-            searchQuery: '',
-            dateFilter: '',
+            loadingOrderId: null, // Tracks which specific order is being cloned to show the spinner
             
-            shouldShow(orderNum, orderDate, status) {
-                // If no filters, show everything
-                if (!this.searchQuery && !this.dateFilter) return true;
+            cloneOrder(orderId) {
+                this.loadingOrderId = orderId;
                 
-                const matchesSearch = !this.searchQuery || 
-                                      orderNum.toLowerCase().includes(this.searchQuery.toLowerCase()) || 
-                                      status.toLowerCase().includes(this.searchQuery.toLowerCase());
-                                      
-                const matchesDate = !this.dateFilter || orderDate === this.dateFilter;
-                
-                return matchesSearch && matchesDate;
-            },
-            
-            clearFilters() {
-                this.searchQuery = '';
-                this.dateFilter = '';
-            },
-            
-            // Computed property to check if all visible rows are hidden
-            // Note: Since x-show just hides, we can't easily count hidden DOM elements efficiently in pure Alpine 
-            // without a data array. For this simple page, the UI empty state is sufficient or handled by backend logic 
-            // if we moved to AJAX. For now, this is a visual toggle.
-            get isEmptyResults() {
-                // This is a placeholder. Implementing true "no results found" detection with x-show usually requires 
-                // data binding the whole list in Alpine, not Jinja loop. 
-                // Given the current Jinja structure, we'll omit the complex logic for "No results found" dynamic message 
-                // to avoid breaking the existing robust Jinja rendering.
-                return false; 
+                fetch(`/api/orders/clone/${orderId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(async (res) => {
+                    // Safely handle non-JSON responses (like 404 HTML pages)
+                    const isJson = res.headers.get('content-type')?.includes('application/json');
+                    const data = isJson ? await res.json() : null;
+                    
+                    if (!res.ok) {
+                        throw new Error(data?.error || `Request failed with status ${res.status}`);
+                    }
+                    if (data && data.error) throw new Error(data.error);
+                    
+                    return data;
+                })
+                .then(data => {
+                    // Show success toast
+                    if (typeof showToast === 'function') {
+                        showToast("Order loaded! Redirecting to cart for edits...", 'success');
+                    }
+                    
+                    // Dispatch event to update the cart badge instantly
+                    window.dispatchEvent(new Event('cartUpdated'));
+                    
+                    // Redirect them to the cart to make Delta Edits
+                    setTimeout(() => {
+                        window.location.href = "{{ url_for('cart.view_cart') }}";
+                    }, 800);
+                })
+                .catch(err => {
+                    this.loadingOrderId = null; // Reset loading state on error
+                    if (typeof showToast === 'function') {
+                        showToast(err.message, 'error');
+                    } else {
+                        alert(err.message);
+                    }
+                });
             }
         }
     }

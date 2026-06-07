@@ -1,0 +1,394 @@
+<!-- File: manager_queue.html -->
+<!-- Location: /app/templates/warehouse/ -->
+
+{% extends "warehouse/warehouse_base.html" %}
+
+{% block title %}Master Queue - Warehouse Portal{% endblock %}
+
+{% block warehouse_content %}
+<script>
+    // Data is now pre-processed by MySQL
+    window.initialPendingQueue = {{ pending_queue | default([]) | tojson | safe }};
+    window.initialActiveQueue = {{ active_queue | default([]) | tojson | safe }};
+    window.initialStaffList = {{ staff | default([]) | tojson | safe }};
+
+    function masterQueueLogic() {
+        return {
+            searchQuery: '',
+            
+            // Thin Data Layer
+            pendingOrders: window.initialPendingQueue || [],
+            activeOrders: window.initialActiveQueue || [],
+            staff: window.initialStaffList || [],
+            
+            // Interactive State
+            selectedOrderIds: [],
+            isProcessing: false,
+            
+            // Modal State for Worker Assignment
+            isAssignModalOpen: false,
+            assigningOrderId: null,
+            staffSearchQuery: '',
+
+            // --- FILTERING LOGIC ---
+            
+            get filteredPendingOrders() {
+                if (!this.searchQuery) return this.pendingOrders;
+                const q = this.searchQuery.toLowerCase();
+                return this.pendingOrders.filter(order => 
+                    order.order_number.toLowerCase().includes(q) || 
+                    (order.first_name + ' ' + order.last_name).toLowerCase().includes(q)
+                );
+            },
+
+            // Filter staff inside the assignment modal
+            get assignableStaff() {
+                if (!this.staffSearchQuery) return this.staff;
+                const q = this.staffSearchQuery.toLowerCase();
+                return this.staff.filter(w => 
+                    w.first_name.toLowerCase().includes(q) || 
+                    (w.last_name && w.last_name.toLowerCase().includes(q))
+                );
+            },
+
+            // --- BATCH SELECTION ---
+
+            toggleAllSelection(event) {
+                if (event.target.checked) {
+                    this.selectedOrderIds = this.filteredPendingOrders.map(o => o.order_id);
+                } else {
+                    this.selectedOrderIds = [];
+                }
+            },
+
+            toggleSelection(orderId) {
+                if (this.selectedOrderIds.includes(orderId)) {
+                    this.selectedOrderIds = this.selectedOrderIds.filter(id => id !== orderId);
+                } else {
+                    this.selectedOrderIds.push(orderId);
+                }
+            },
+
+            // --- ASSIGNMENT MODAL LOGIC ---
+
+            openAssignModal(orderId) {
+                this.assigningOrderId = orderId;
+                this.staffSearchQuery = ''; // Reset search when opening
+                this.isAssignModalOpen = true;
+            },
+
+            closeAssignModal() {
+                this.isAssignModalOpen = false;
+                setTimeout(() => { this.assigningOrderId = null; }, 300);
+            },
+
+            getWorkerName(workerId) {
+                if (!workerId) return 'Unassigned (Auto-Queue)';
+                const worker = this.staff.find(w => w.user_id === workerId);
+                return worker ? `${worker.first_name} ${worker.last_name || ''}`.trim() : 'Unknown Worker';
+            },
+
+            assignWorkerFromModal(workerId) {
+                // Call the existing assignWorker function
+                this.assignWorker(this.assigningOrderId, workerId);
+                this.closeAssignModal();
+            },
+
+            // --- API CALLS ---
+
+            releaseToFloor() {
+                if (this.selectedOrderIds.length === 0) return;
+                if (!confirm(`Release ${this.selectedOrderIds.length} orders to the warehouse floor?`)) return;
+
+                this.isProcessing = true;
+                
+                fetch("{{ url_for('warehouse.api_bulk_release_orders') }}", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ order_ids: this.selectedOrderIds })
+                })
+                .then(async res => {
+                    const data = await res.json().catch(() => null);
+                    if(!res.ok || (data && data.error)) throw new Error((data && data.error) || "Server Error");
+                    return data;
+                })
+                .then(() => {
+                    if(typeof showToast === 'function') showToast("Orders released to floor successfully!", "success");
+                    setTimeout(() => { window.location.reload(); }, 600);
+                })
+                .catch(err => {
+                    if(typeof showToast === 'function') showToast(err.message, "error");
+                    this.isProcessing = false;
+                });
+            },
+
+            assignWorker(orderId, workerId) {
+                const safeWorkerId = workerId ? parseInt(workerId) : null;
+
+                const baseUrl = "{{ url_for('warehouse.assign_worker', order_id=0) }}";
+                const targetUrl = baseUrl.replace('/0/', `/${orderId}/`);
+
+                fetch(targetUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ worker_id: safeWorkerId })
+                })
+                .then(async res => {
+                    const data = await res.json().catch(() => null);
+                    if(!res.ok || (data && data.error)) throw new Error((data && data.error) || "Server Error");
+                    
+                    // Optimistically update local UI state so we don't need to refresh the page
+                    const order = this.pendingOrders.find(o => o.order_id === orderId);
+                    if (order) order.assigned_worker_id = safeWorkerId;
+
+                    if(typeof showToast === 'function') showToast("Assignment updated", "success");
+                })
+                .catch(err => {
+                    if(typeof showToast === 'function') showToast(err.message, "error");
+                });
+            },
+
+            // --- HELPERS ---
+            
+            getStatusBadgeClass(status) {
+                switch(status?.toLowerCase()) {
+                    case 'pending': return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+                    case 'confirmed': return 'bg-blue-50 text-blue-700 border-blue-200 ring-1 ring-blue-400 shadow-sm';
+                    case 'processing': return 'bg-purple-50 text-purple-700 border-purple-200';
+                    case 'partially_shipped': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                    default: return 'bg-gray-50 text-gray-700 border-gray-200';
+                }
+            }
+        }
+    }
+</script>
+
+<div x-data="masterQueueLogic()" class="max-w-7xl mx-auto relative">
+    
+    <!-- Header Section -->
+    <div class="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Master Fulfillment Queue</h1>
+            <p class="mt-2 text-sm text-gray-500">
+                Air Traffic Control. Batch release orders to the floor or manually assign exceptions.
+            </p>
+        </div>
+        
+        <!-- Batch Action Bar -->
+        <div class="flex items-center gap-4 bg-white p-2 rounded-xl shadow-sm border border-gray-200">
+            <div class="px-4 border-r border-gray-100">
+                <span class="text-2xl font-black text-blue-600" x-text="selectedOrderIds.length"></span>
+                <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Selected</span>
+            </div>
+            <button @click="releaseToFloor()" 
+                    :disabled="selectedOrderIds.length === 0 || isProcessing"
+                    class="bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-lg text-sm font-bold transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                <span x-show="!isProcessing"><i class="fas fa-paper-plane mr-1"></i> Release to Floor</span>
+                <span x-show="isProcessing"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Workspace Area -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[600px]">
+        
+        <!-- Toolbar -->
+        <div class="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50">
+            <div class="flex items-center gap-4">
+                <h2 class="text-base font-bold text-gray-900">Pending Orders</h2>
+                <span class="bg-blue-100 text-blue-700 text-xs font-bold px-2.5 py-0.5 rounded-full" x-text="pendingOrders.length"></span>
+            </div>
+            
+            <div class="relative w-full sm:w-72">
+                <i class="fas fa-search absolute left-3 top-2.5 text-gray-400"></i>
+                <input type="text" x-model="searchQuery" placeholder="Search Order # or Buyer..." 
+                       class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+            </div>
+        </div>
+
+        <!-- The Big Table -->
+        <div class="overflow-x-auto flex-1 pb-24"> <!-- Added pb-24 so dropdowns don't clip at bottom -->
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-white sticky top-0 z-10 shadow-sm">
+                    <tr>
+                        <th class="px-6 py-4 w-12">
+                            <input type="checkbox" @change="toggleAllSelection($event)" 
+                                   class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                                   :checked="selectedOrderIds.length > 0 && selectedOrderIds.length === filteredPendingOrders.length">
+                        </th>
+                        <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Order ID</th>
+                        <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Buyer</th>
+                        <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Date & Time</th>
+                        <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-4 text-right text-[10px] font-bold text-gray-400 uppercase tracking-wider">Assignment</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-100">
+                    
+                    <!-- NEW/PENDING ORDERS SECTION -->
+                    <template x-for="order in filteredPendingOrders" :key="order.order_id">
+                        <tr class="hover:bg-blue-50/30 transition-colors" :class="selectedOrderIds.includes(order.order_id) ? 'bg-blue-50/50' : ''">
+                            <td class="px-6 py-4">
+                                <input type="checkbox" :value="order.order_id" @change="toggleSelection(order.order_id)"
+                                       :checked="selectedOrderIds.includes(order.order_id)"
+                                       class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer">
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="text-sm font-mono font-bold text-gray-900" x-text="order.order_number"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm font-medium text-gray-900" x-text="order.first_name + ' ' + order.last_name"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-900" x-text="order.formatted_date"></div>
+                                <div class="text-[10px] text-gray-400 font-bold uppercase" x-text="order.formatted_time"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border" 
+                                      :class="getStatusBadgeClass(order.order_status)" x-text="order.order_status"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap flex justify-end">
+                                <!-- NEW: Modal Trigger Button instead of Select Dropdown -->
+                                <button @click="openAssignModal(order.order_id)"
+                                        class="text-xs border rounded-lg py-1.5 px-3 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer flex items-center justify-between w-48 transition-colors shadow-sm"
+                                        :class="order.assigned_worker_id ? 'border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold' : 'border-gray-300 bg-white hover:bg-gray-50 text-gray-600'">
+                                    <span class="truncate" x-text="getWorkerName(order.assigned_worker_id)"></span>
+                                    <i class="fas fa-chevron-down ml-2 text-gray-400 shrink-0"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    </template>
+                    
+                    <tr x-show="filteredPendingOrders.length === 0">
+                        <td colspan="6" class="px-6 py-8 text-center text-gray-500 text-sm">
+                            <span x-text="searchQuery ? 'No pending orders match your search.' : 'There are no pending orders.'"></span>
+                        </td>
+                    </tr>
+
+                    <!-- DIVIDER FOR ACTIVE FLOOR ORDERS -->
+                    <tr x-show="activeOrders.length > 0">
+                        <td colspan="6" class="px-6 py-3 bg-gray-50/80 border-t border-b border-gray-200">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-gray-500 uppercase tracking-widest"><i class="fas fa-dolly mr-2"></i> Currently on the Floor (Processing)</span>
+                                <span class="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full" x-text="activeOrders.length"></span>
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- ACTIVE ORDERS SECTION (Read-Only Checkboxes, Pre-Rendered by SQL) -->
+                    <template x-for="order in activeOrders" :key="order.order_id">
+                        <tr class="bg-gray-50/30 opacity-75">
+                            <td class="px-6 py-4">
+                                <input type="checkbox" disabled class="rounded border-gray-200 bg-gray-100 text-gray-300 w-4 h-4 cursor-not-allowed">
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="text-sm font-mono font-bold text-gray-500" x-text="order.order_number"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm font-medium text-gray-500" x-text="order.first_name + ' ' + order.last_name"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-500" x-text="order.formatted_date"></div>
+                                <div class="text-[10px] text-gray-400 font-bold uppercase" x-text="order.formatted_time"></div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border" 
+                                      :class="getStatusBadgeClass(order.order_status)" x-text="order.order_status"></span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right flex justify-end">
+                                <!-- Read-only display pulled directly from SQL's COALESCE -->
+                                <span class="text-xs font-bold text-purple-700 bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200 flex items-center justify-center min-w-[120px]">
+                                    <i class="fas fa-user-hard-hat mr-2"></i> 
+                                    <span class="truncate max-w-[120px]" x-text="order.worker_first_name"></span>
+                                </span>
+                            </td>
+                        </tr>
+                    </template>
+
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- ASSIGNMENT MODAL                           -->
+    <!-- ========================================== -->
+    <div x-show="isAssignModalOpen" class="fixed inset-0 z-[100] flex items-center justify-center px-4" aria-labelledby="modal-title" role="dialog" aria-modal="true" x-cloak>
+        
+        <!-- Backdrop -->
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" 
+             x-show="isAssignModalOpen"
+             x-transition.opacity
+             @click="closeAssignModal()"></div>
+
+        <!-- Modal Panel -->
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10 transform transition-all overflow-hidden"
+             x-show="isAssignModalOpen"
+             x-transition:enter="ease-out duration-300"
+             x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+             x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+             x-transition:leave="ease-in duration-200"
+             x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+             x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95">
+            
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h3 class="text-base font-bold text-gray-900" id="modal-title">Assign to Worker</h3>
+                <button @click="closeAssignModal()" class="text-gray-400 hover:text-gray-700 transition w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-200">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <!-- Search Bar -->
+            <div class="p-4 border-b border-gray-100">
+                <div class="relative">
+                    <i class="fas fa-search absolute left-3 top-2.5 text-gray-400"></i>
+                    <input type="text" x-model="staffSearchQuery" placeholder="Search staff members..." 
+                           class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition bg-gray-50">
+                </div>
+            </div>
+
+            <!-- Staff List -->
+            <div class="max-h-72 overflow-y-auto custom-scrollbar p-2">
+                
+                <!-- Unassign Option -->
+                <button @click="assignWorkerFromModal('')" 
+                        class="w-full text-left px-4 py-3 rounded-xl hover:bg-gray-50 flex items-center gap-3 transition group mb-1 border border-transparent hover:border-gray-200">
+                    <div class="w-10 h-10 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center group-hover:bg-gray-200 transition">
+                        <i class="fas fa-random"></i>
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="text-sm font-bold text-gray-900">Unassigned (Auto-Queue)</h4>
+                        <p class="text-[10px] text-gray-500">System will assign to next available worker</p>
+                    </div>
+                </button>
+
+                <!-- Dynamic Staff List -->
+                <template x-for="worker in assignableStaff" :key="worker.user_id">
+                    <button @click="assignWorkerFromModal(worker.user_id)" 
+                            class="w-full text-left px-4 py-3 rounded-xl hover:bg-blue-50 flex items-center gap-3 transition group border border-transparent hover:border-blue-100 mb-1"
+                            :class="!worker.is_active ? 'opacity-50 grayscale' : ''">
+                        <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-sm border border-blue-200 group-hover:bg-blue-600 group-hover:text-white transition">
+                            <span x-text="worker.first_name.charAt(0)"></span>
+                        </div>
+                        <div class="flex-1">
+                            <h4 class="text-sm font-bold text-gray-900 flex items-center gap-2">
+                                <span x-text="worker.first_name + ' ' + (worker.last_name || '')"></span>
+                                <span x-show="!worker.is_active" class="text-[8px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded uppercase tracking-wider">Inactive</span>
+                            </h4>
+                            <p class="text-[10px] text-gray-500 font-mono" x-text="worker.email"></p>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-300 group-hover:text-blue-500 transition translate-x-0 group-hover:translate-x-1"></i>
+                    </button>
+                </template>
+
+                <div x-show="assignableStaff.length === 0" class="text-center py-8 text-gray-500 text-sm">
+                    No staff members found matching "<span x-text="staffSearchQuery"></span>"
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

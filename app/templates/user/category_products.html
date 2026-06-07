@@ -25,212 +25,323 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {% for product in products %}
             <!-- Product Card -->
-            <div class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col h-full group"
-                 x-data="{ 
-                    count: {{ product.cart_quantity }}, 
-                    isLoading: false,
-                    updateQty(newQty) {
-                        this.isLoading = true;
-                        if (newQty < 0) newQty = 0;
-                        fetch('{{ url_for('cart.set_product_quantity') }}', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ 
-                                product_id: {{ product.product_id }}, 
-                                quantity: newQty, 
-                                price: {{ product.price }}, 
-                                variant_id: null 
-                            })
-                        })
-                        .then(res => res.json())
-                        .then(() => { this.count = newQty; this.isLoading = false; window.dispatchEvent(new Event('cartUpdated')); })
-                        .catch(() => { this.isLoading = false; });
-                    }
-                 }">
+            <div class="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden flex flex-col h-full group">
                 
-                <!-- Image -->
-                <div class="aspect-[4/3] bg-gray-100 relative overflow-hidden cursor-pointer group" onclick="window.location='{{ url_for('user.product_detail', product_id=product.product_id) }}'">
-                    <img src="{{ product.image_url if product.image_url else 'https://via.placeholder.com/400x300?text=No+Image' }}" 
-                         alt="{{ product.name }}" 
-                         class="absolute inset-0 w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ease-in-out">
-                    
-                    {% if product.cart_quantity > 0 %}
-                    <div class="absolute top-2 right-2 bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm">
-                        IN CART: <span x-text="count"></span>
+                <!-- Image Area (Now Clickable) -->
+                <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="relative w-full pt-[100%] bg-gray-100 overflow-hidden block">
+                    {% if product.image_url %}
+                    <img src="{{ product.image_url }}" alt="{{ product.name }}" class="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105">
+                    {% else %}
+                    <div class="absolute inset-0 flex items-center justify-center text-gray-300">
+                        <i class="fas fa-image text-3xl"></i>
                     </div>
+                    {% endif %}
+                    
+                    {% if product.stock_quantity <= 0 %}
+                    <div class="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center z-10">
+                        <span class="bg-red-500 text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full shadow-sm">Out of Stock</span>
+                    </div>
+                    {% endif %}
+                </a>
+
+                <!-- Product Info Area -->
+                <div class="p-5 flex flex-col flex-1">
+                    <div class="mb-1 flex justify-between items-start">
+                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{{ product.brand_name if product.brand_name else 'Generic' }}</p>
+                    </div>
+                    
+                    <!-- Title Area (Now Clickable) -->
+                    <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="block">
+                        <h3 class="text-sm font-bold text-gray-900 leading-tight mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
+                            {{ product.name }}
+                        </h3>
+                    </a>
+                    
+                    <div class="mt-auto pt-4 flex items-center justify-between">
+                        <div class="flex flex-col">
+                            <span class="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">Price</span>
+                            <span class="text-base font-extrabold text-gray-900 leading-none">${{ "{:,.2f}".format(product.price) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Add to Cart / View Details Button -->
+                <div class="pt-3 border-t border-gray-50 mt-auto">
+                    {% if product.has_variants %}
+                        <div class="p-5 pt-0 mt-auto">
+                            <button @click.prevent="openModal({{ product | tojson | forceescape }})" class="relative z-10 w-full py-2.5 rounded-lg border border-slate-900 text-slate-900 text-xs font-bold uppercase tracking-wide hover:bg-slate-900 hover:text-white transition text-center block cursor-pointer shadow-sm hover:shadow-md">
+                                Select Options
+                            </button>
+                        </div>
+                    {% else %}
+                        {% if product.stock_quantity > 0 %}
+                            <div class="p-5 pt-0 mt-auto" 
+                                 x-data="{ 
+                                     count: parseInt('{{ product.base_cart_quantity | default(0) }}') || 0, 
+                                     isLoading: false,
+                                     updateQty(qty) {
+                                         if (qty > {{ product.stock_quantity }}) {
+                                             if (typeof showToast === 'function') showToast('Not enough stock', 'error');
+                                             return;
+                                         }
+                                         this.isLoading = true;
+                                         fetch('{{ url_for('cart.set_product_quantity') }}', {
+                                             method: 'POST',
+                                             headers: { 'Content-Type': 'application/json' },
+                                             body: JSON.stringify({
+                                                 product_id: {{ product.product_id }},
+                                                 quantity: qty,
+                                                 price: {{ product.price }},
+                                                 variant_id: null
+                                             })
+                                         })
+                                         .then(res => res.json())
+                                         .then(data => {
+                                             this.isLoading = false;
+                                             if(data.error) throw new Error(data.error);
+                                             this.count = qty;
+                                             
+                                             // Broadcast event to sync modal if it's open
+                                             window.dispatchEvent(new CustomEvent('product-qty-changed', { 
+                                                 detail: { product_id: {{ product.product_id }}, variant_id: null, qty: qty } 
+                                             }));
+                                             window.dispatchEvent(new Event('cartUpdated'));
+
+                                             if (typeof showToast === 'function') {
+                                                 if (qty === 0) showToast('Removed from cart', 'success');
+                                                 else showToast('Cart updated!', 'success');
+                                             }
+                                         })
+                                         .catch(err => {
+                                             this.isLoading = false;
+                                             if (typeof showToast === 'function') showToast(err.message, 'error');
+                                         });
+                                     }
+                                 }"
+                                 @product-qty-changed.window="if ($event.detail.product_id === {{ product.product_id }} && $event.detail.variant_id === null) count = $event.detail.qty">
+                                
+                                <div x-show="count === 0">
+                                    <button @click.prevent="updateQty(1)" :disabled="isLoading"
+                                            class="relative z-10 w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-sm hover:shadow-md flex justify-center items-center gap-2 transform active:scale-[0.98]">
+                                        <span x-show="!isLoading" class="flex items-center gap-2"><i class="fas fa-shopping-cart text-white/70"></i> Add to Cart</span>
+                                        <span x-show="isLoading"><i class="fas fa-spinner fa-spin"></i></span>
+                                    </button>
+                                </div>
+                                <div x-show="count > 0" class="relative z-10 flex items-center justify-between bg-slate-100 rounded-lg p-1 h-[42px] border border-slate-200" x-cloak>
+                                    <button @click.prevent="updateQty(count - 1)" :disabled="isLoading" class="w-10 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-minus text-xs"></i></button>
+                                    <span class="text-xs font-bold text-slate-900" x-text="count"></span>
+                                    <button @click.prevent="updateQty(count + 1)" :disabled="isLoading" class="w-10 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-plus text-xs"></i></button>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="p-5 pt-0 mt-auto">
+                                <button disabled class="relative z-10 w-full py-2.5 rounded-lg bg-gray-100 text-gray-400 text-xs font-bold uppercase tracking-wide cursor-not-allowed">
+                                    Out of Stock
+                                </button>
+                            </div>
+                        {% endif %}
                     {% endif %}
                 </div>
 
-                <!-- Content -->
-                <div class="p-4 flex flex-col flex-1">
-                    <div class="mb-auto">
-                        <div class="flex justify-between items-start mb-2">
-                            <span class="text-[10px] font-bold uppercase tracking-wider text-gray-400">{{ product.brand_name if product.brand_name else 'Saratella' }}</span>
-                            <span class="text-sm font-bold text-slate-900">₹{{ "{:,.2f}".format(product.price) }}</span>
-                        </div>
-                        <a href="{{ url_for('user.product_detail', product_id=product.product_id) }}" class="block group">
-                            <h3 class="font-bold text-gray-900 text-sm leading-snug mb-1 group-hover:text-blue-600 transition-colors">{{ product.name }}</h3>
-                        </a>
-                    </div>
-
-                    <!-- Actions -->
-                    <div class="mt-4 pt-4 border-t border-gray-50">
-                        {% if product.has_variants %}
-                            <button @click="openVariantModal({{ product.product_id }}, '{{ product.name|replace("'", "\\'") }}', {{ product.price }}, '{{ product.image_url }}')" 
-                                    class="w-full py-2.5 bg-white border border-slate-200 hover:border-slate-900 text-slate-700 hover:text-slate-900 text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-sm">
-                                Select Options
-                            </button>
-                        {% else %}
-                            <div x-show="count === 0">
-                                <button @click="updateQty(1)" :disabled="isLoading"
-                                        class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-md hover:shadow-lg flex justify-center items-center gap-2">
-                                    <span x-show="!isLoading">Add to Cart</span>
-                                    <span x-show="isLoading"><i class="fas fa-spinner fa-spin"></i></span>
-                                </button>
-                            </div>
-                            <div x-show="count > 0" class="flex items-center justify-between bg-slate-100 rounded-lg p-1 h-9">
-                                <button @click="updateQty(count - 1)" :disabled="isLoading" class="w-8 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-minus text-[10px]"></i></button>
-                                <span class="text-xs font-bold text-slate-900" x-text="count"></span>
-                                <button @click="updateQty(count + 1)" :disabled="isLoading" class="w-8 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition"><i class="fas fa-plus text-[10px]"></i></button>
-                            </div>
-                        {% endif %}
-                    </div>
-                </div>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <div class="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-gray-200 border-dashed">
+        <!-- Empty State -->
+        <div class="flex-1 flex flex-col items-center justify-center text-center p-12 bg-white border border-dashed border-gray-200 rounded-2xl">
             <div class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4 text-gray-300">
-                <i class="fas fa-search text-2xl"></i>
+                <i class="fas fa-box-open text-2xl"></i>
             </div>
-            <h3 class="text-gray-900 font-bold text-sm mb-1">No products found</h3>
-            <p class="text-xs text-gray-500 mb-6">We couldn't find any items in this category.</p>
-            <a href="{{ url_for('user.dashboard') }}" class="inline-flex items-center px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-wide rounded-lg transition shadow-sm transform hover:-translate-y-0.5">
-                Browse All Products
+            <h2 class="text-sm font-bold text-gray-900 mb-1">No products found</h2>
+            <p class="text-xs text-gray-500 mb-6 max-w-xs mx-auto">We couldn't find any products in this category at the moment.</p>
+            <a href="{{ url_for('user.dashboard') }}" class="inline-flex items-center px-5 py-2.5 bg-slate-900 text-white text-xs font-bold uppercase tracking-wide rounded-lg hover:bg-slate-800 transition shadow-sm hover:shadow-md">
+                <i class="fas fa-arrow-left mr-2"></i> Back to Store
             </a>
         </div>
         {% endif %}
 
-        <!-- VARIANT SELECTION MODAL (Identical Logic to Dashboard) -->
-        <div x-show="modalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true" x-cloak>
-            <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity" @click="closeModal()"></div>
+        <!-- Quick View Modal (Alpine.js) -->
+        <div x-show="isModalOpen" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" x-cloak>
+            <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" 
+                 x-show="isModalOpen"
+                 x-transition:enter="ease-out duration-300"
+                 x-transition:enter-start="opacity-0"
+                 x-transition:enter-end="opacity-100"
+                 x-transition:leave="ease-in duration-200"
+                 x-transition:leave-start="opacity-100"
+                 x-transition:leave-end="opacity-0"
+                 @click="closeModal()"></div>
 
-            <div class="flex items-center justify-center min-h-screen p-4 text-center sm:p-0">
-                <div class="relative bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:max-w-2xl w-full border border-gray-100 flex flex-col md:flex-row">
+            <div class="flex min-h-full items-center justify-center p-4 sm:p-6 text-center">
+                <div class="relative transform overflow-hidden rounded-2xl bg-white text-left shadow-2xl transition-all sm:w-full sm:max-w-3xl flex flex-col sm:flex-row"
+                     x-show="isModalOpen"
+                     x-transition:enter="ease-out duration-300"
+                     x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                     x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100"
+                     x-transition:leave="ease-in duration-200"
+                     x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100"
+                     x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                     @click.stop>
                     
-                    <!-- Modal Image -->
-                    <div class="md:w-2/5 bg-gray-50 relative min-h-[200px] md:min-h-0">
-                        <img :src="currentVariantImage || modalProduct.image" class="absolute inset-0 w-full h-full object-cover">
+                    <button @click="closeModal()" class="absolute top-4 right-4 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-white/80 text-gray-500 hover:text-gray-900 hover:bg-white shadow-sm backdrop-blur transition focus:outline-none">
+                        <i class="fas fa-times"></i>
+                    </button>
+
+                    <div class="w-full sm:w-1/2 bg-gray-50 relative min-h-[300px] sm:min-h-[400px]">
+                        <img :src="modalProduct?.image_url" :alt="modalProduct?.name" class="absolute inset-0 w-full h-full object-cover">
                     </div>
 
-                    <!-- Modal Content -->
-                    <div class="md:w-3/5 p-6 md:p-8 flex flex-col">
-                        <button @click="closeModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition">
-                            <i class="fas fa-times text-lg"></i>
-                        </button>
+                    <div class="w-full sm:w-1/2 p-6 sm:p-8 flex flex-col">
+                        <div class="mb-2 flex items-center gap-2">
+                            <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest" x-text="modalProduct?.brand_name || 'Generic'"></span>
+                            <span class="w-1 h-1 bg-gray-300 rounded-full"></span>
+                            <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest" x-text="modalProduct?.category_name || modalProduct?.category"></span>
+                        </div>
+                        
+                        <h2 class="text-xl sm:text-2xl font-bold text-gray-900 mb-2 leading-tight" x-text="modalProduct?.name"></h2>
+                        <p class="text-xs text-gray-400 font-mono mb-6" x-text="'SKU: ' + modalProduct?.sku"></p>
 
-                        <h3 class="text-xl font-bold text-gray-900 mb-1 leading-tight" x-text="modalProduct.name"></h3>
-                        <p class="text-lg font-bold text-slate-900 mb-6" x-text="formattedPrice"></p>
-
-                        <!-- Loading State -->
-                        <div x-show="modalLoading" class="py-12 text-center text-gray-300">
-                            <i class="fas fa-spinner fa-spin text-3xl"></i>
+                        <!-- Price -->
+                        <div class="mb-5 flex items-end gap-3">
+                            <span class="text-3xl font-extrabold text-gray-900 leading-none" x-text="'$' + parseFloat(selectedVariant ? selectedVariant.price : (modalProduct?.price || 0)).toFixed(2)"></span>
+                            <span x-show="modalProduct?.stock_quantity > 0" class="text-xs font-bold text-green-600 mb-1 px-2 py-0.5 bg-green-50 rounded uppercase tracking-wide">In Stock</span>
+                            <span x-show="modalProduct?.stock_quantity <= 0" class="text-xs font-bold text-red-600 mb-1 px-2 py-0.5 bg-red-50 rounded uppercase tracking-wide">Out of Stock</span>
                         </div>
 
-                        <!-- Options -->
-                        <div x-show="!modalLoading" class="space-y-5 flex-1">
-                            <template x-for="attr in attributes" :key="attr.id">
-                                <div>
-                                    <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2" x-text="attr.name"></h4>
-                                    <div class="flex flex-wrap gap-2">
-                                        <template x-for="opt in attr.options" :key="opt.id">
-                                            <button @click="selectAttribute(attr.id, opt.id)"
-                                                    class="px-3 py-1.5 rounded-md border text-xs font-medium transition-all"
-                                                    :class="selections[attr.id] == opt.id ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'"
-                                                    x-text="opt.name">
-                                            </button>
-                                        </template>
-                                    </div>
+                        <!-- Description -->
+                        <p class="text-sm text-gray-600 mb-6 leading-relaxed" x-text="modalProduct?.description"></p>
+
+                        <!-- B2B Variant Selector Grid -->
+                        <template x-if="modalProduct?.has_variants && parsedVariants.length > 0">
+                            <div class="mb-5 pt-4 border-t border-gray-100">
+                                <label class="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Select Option</label>
+                                <div class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-1">
+                                    <template x-for="variant in parsedVariants" :key="variant.id">
+                                        <button @click="selectVariant(variant)"
+                                                :class="selectedVariant?.id === variant.id ? 'border-slate-900 bg-slate-900 text-white shadow-md' : 'border-gray-200 bg-white text-gray-700 hover:border-slate-400'"
+                                                class="px-3 py-2 border rounded-lg text-xs font-bold transition text-left flex flex-col justify-center cursor-pointer relative">
+                                            <span x-text="variant.name" class="truncate w-full"></span>
+                                            <span :class="selectedVariant?.id === variant.id ? 'text-white/80' : 'text-slate-500'" class="block text-[10px] font-normal mt-0.5" x-text="'$' + parseFloat(variant.price).toFixed(2)"></span>
+                                            
+                                            <!-- Sub-badge showing if this specific variant is already in cart -->
+                                            <span x-show="variant.cart_quantity > 0" class="absolute top-1.5 right-1.5 bg-blue-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm" x-text="variant.cart_quantity + ' IN CART'"></span>
+                                        </button>
+                                    </template>
                                 </div>
-                            </template>
-                        </div>
+                            </div>
+                        </template>
 
-                        <!-- Add Button -->
-                        <div class="mt-8 pt-5 border-t border-gray-100">
-                            <button @click="addToCartFromModal()" 
-                                    :disabled="!isReadyToAdd || modalLoading || isOutOfStock"
-                                    class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed text-xs uppercase tracking-wide flex justify-center items-center gap-2 transform active:scale-[0.98]">
-                                <span x-text="addButtonText"></span>
-                            </button>
+                        <!-- Actions / Add to Cart Area -->
+                        <div class="flex flex-col gap-4 mt-auto">
+                            <!-- Out of stock state -->
+                            <div x-show="isOutOfStock" class="w-full">
+                                <button disabled class="w-full bg-gray-200 text-gray-400 text-xs font-bold uppercase tracking-wide py-3 rounded-lg cursor-not-allowed flex items-center justify-center gap-2">
+                                    <i class="fas fa-times-circle"></i> Out of Stock
+                                </button>
+                            </div>
+
+                            <!-- Add Button Area (Dynamic Counter) -->
+                            <div x-show="!isOutOfStock" class="w-full">
+                                <!-- Scenario 1: Variant not selected -->
+                                <template x-if="!isReadyToAdd">
+                                    <button disabled
+                                            class="w-full py-3 bg-gray-100 text-gray-400 font-bold rounded-lg cursor-not-allowed text-xs uppercase tracking-wide">
+                                        <span x-text="addButtonText"></span>
+                                    </button>
+                                </template>
+
+                                <!-- Scenario 2: Variant Selected or No Variants, In Stock -->
+                                <template x-if="isReadyToAdd">
+                                    <div>
+                                        <!-- Case A: Item NOT in cart (Qty 0) -->
+                                        <button x-show="currentVariantCartQty === 0" 
+                                                @click="updateCartFromModal(1)"
+                                                class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg shadow-md transition text-xs uppercase tracking-wide flex justify-center items-center gap-2 transform active:scale-[0.98]">
+                                            <i class="fas fa-shopping-cart"></i> <span>Add to Cart</span>
+                                        </button>
+
+                                        <!-- Case B: Item IN Cart (Qty > 0) -> Show Counter -->
+                                        <div x-show="currentVariantCartQty > 0" class="flex items-center justify-between bg-slate-100 rounded-lg p-1 h-12 border border-slate-200">
+                                            <button @click="updateCartFromModal(currentVariantCartQty - 1)" 
+                                                    class="w-12 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition">
+                                                <i class="fas fa-minus text-xs"></i>
+                                            </button>
+                                            
+                                            <div class="text-center flex-1">
+                                                <span class="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">In Cart</span>
+                                                <span class="block text-sm font-extrabold text-slate-900" x-text="currentVariantCartQty"></span>
+                                            </div>
+                                            
+                                            <button @click="updateCartFromModal(currentVariantCartQty + 1)" 
+                                                    class="w-12 h-full flex items-center justify-center bg-white rounded shadow-sm text-slate-600 hover:text-slate-900 transition">
+                                                <i class="fas fa-plus text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
                         </div>
+                        
+                        <a :href="'/api/user/product/' + modalProduct?.product_id" class="text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-4 hover:text-gray-900 transition">
+                            View Full Details
+                        </a>
                     </div>
                 </div>
             </div>
         </div>
-
     </div>
 
+    <!-- Alpine Logic -->
     <script>
         function categoryLogic() {
             return {
-                modalOpen: false,
-                modalLoading: false,
-                modalProduct: { id: null, name: '', basePrice: 0, image: '' },
-                attributes: [],
-                variantsMap: {},
-                selections: {},
-                currentVariant: null,
+                isModalOpen: false,
+                modalProduct: null,
+                
+                parsedVariants: [],
+                selectedVariant: null,
+                currentVariantCartQty: 0,
 
-                openVariantModal(id, name, price, image) {
-                    this.modalProduct = { id, name, basePrice: price, image };
-                    this.modalOpen = true;
-                    this.modalLoading = true;
-                    this.selections = {};
-                    this.currentVariant = null;
+                get isOutOfStock() { return this.modalProduct && this.modalProduct.stock_quantity <= 0; },
+                get isReadyToAdd() { return this.modalProduct && (!this.modalProduct.has_variants || this.selectedVariant !== null); },
+                
+                openModal(product) {
+                    this.modalProduct = product;
                     
-                    fetch(`/api/user/product/${id}/variant-data`)
-                        .then(res => res.json())
-                        .then(data => {
-                            this.attributes = data.attributes;
-                            this.variantsMap = data.variants_map;
-                            this.modalLoading = false;
-                        })
-                        .catch(() => { this.modalLoading = false; this.closeModal(); });
+                    try {
+                        this.parsedVariants = typeof product.variants_json === 'string' 
+                            ? JSON.parse(product.variants_json) 
+                            : (product.variants_json || []);
+                    } catch(e) {
+                        this.parsedVariants = [];
+                    }
+                    this.selectedVariant = null; 
+                    this.currentVariantCartQty = product.has_variants ? 0 : (product.base_cart_quantity || 0);
+                    
+                    this.isModalOpen = true;
                 },
 
-                closeModal() { this.modalOpen = false; },
-
-                selectAttribute(attrId, valId) {
-                    this.selections[attrId] = valId;
-                    this.findVariant();
+                closeModal() {
+                    this.isModalOpen = false;
+                    setTimeout(() => { 
+                        this.modalProduct = null; 
+                        this.parsedVariants = [];
+                        this.selectedVariant = null;
+                        this.currentVariantCartQty = 0;
+                    }, 300);
                 },
 
-                findVariant() {
-                    if (Object.keys(this.selections).length !== this.attributes.length) return;
-                    const key = Object.entries(this.selections)
-                        .sort((a, b) => a[0] - b[0])
-                        .map(([k, v]) => `${k}:${v}`)
-                        .join(',');
-                    this.currentVariant = this.variantsMap[key] || null;
+                selectVariant(variant) {
+                    this.selectedVariant = variant;
+                    this.currentVariantCartQty = variant.cart_quantity || 0; 
                 },
-
-                get isReadyToAdd() {
-                    if (this.modalLoading) return false;
-                    return Object.keys(this.selections).length === this.attributes.length;
-                },
-
-                get isOutOfStock() {
-                    if (!this.isReadyToAdd) return false;
-                    return !this.currentVariant || this.currentVariant.stock <= 0;
-                },
-
+                
                 get formattedPrice() {
-                    const price = this.currentVariant ? this.currentVariant.price : this.modalProduct.basePrice;
-                    return '₹' + price.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+                    const price = this.selectedVariant ? this.selectedVariant.price : (this.modalProduct ? this.modalProduct.price : 0);
+                    return '$' + parseFloat(price).toLocaleString('en-IN', { minimumFractionDigits: 2 });
                 },
 
-                get currentVariantImage() { return this.currentVariant ? this.currentVariant.image : null; },
+                get currentVariantImage() { return this.selectedVariant ? this.selectedVariant.image : null; },
 
                 get addButtonText() {
                     if (this.isOutOfStock) return 'Out of Stock';
@@ -238,24 +349,53 @@
                     return 'Add to Cart';
                 },
 
-                addToCartFromModal() {
-                    const price = this.currentVariant ? this.currentVariant.price : this.modalProduct.basePrice;
-                    const variantId = this.currentVariant ? this.currentVariant.id : null;
+                updateCartFromModal(qty) {
+                    if (this.modalProduct.has_variants && !this.selectedVariant) {
+                        if (typeof showToast === 'function') showToast("Please select an option first.", 'error');
+                        return;
+                    }
+
+                    const price = this.selectedVariant ? this.selectedVariant.price : this.modalProduct.price;
+                    const variantId = this.selectedVariant ? this.selectedVariant.id : null;
                     
                     fetch("{{ url_for('cart.set_product_quantity') }}", {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            product_id: this.modalProduct.id,
-                            quantity: 1, 
+                            product_id: this.modalProduct.product_id,
+                            quantity: qty, 
                             price: price,
                             variant_id: variantId 
                         })
                     })
                     .then(res => res.json())
-                    .then(() => {
+                    .then(data => {
+                        if(data.error) throw new Error(data.error);
+                        
+                        this.currentVariantCartQty = qty; 
+                        
+                        if (this.selectedVariant) {
+                            this.selectedVariant.cart_quantity = qty;
+                            const v = this.parsedVariants.find(v => v.id === this.selectedVariant.id);
+                            if (v) v.cart_quantity = qty;
+                        } else {
+                            this.modalProduct.base_cart_quantity = qty;
+                        }
+
+                        // NEW: Broadcast event to sync external product cards!
+                        window.dispatchEvent(new CustomEvent('product-qty-changed', { 
+                            detail: { product_id: this.modalProduct.product_id, variant_id: variantId, qty: qty } 
+                        }));
+
                         window.dispatchEvent(new Event('cartUpdated'));
-                        this.closeModal();
+                        
+                        if (typeof showToast === 'function') {
+                            if (qty === 0) showToast("Removed from cart", 'success');
+                            else showToast("Cart updated!", 'success');
+                        }
+                    })
+                    .catch(err => {
+                        if (typeof showToast === 'function') showToast(err.message, 'error');
                     });
                 }
             }

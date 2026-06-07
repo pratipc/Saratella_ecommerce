@@ -7,8 +7,11 @@
 {% block user_content %}
 <div class="max-w-5xl mx-auto">
     
-    <!-- Status & Timeline Banner -->
-    <div class="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden mb-10">
+    <!-- Status & Timeline Banner (Now Real-Time Powered) -->
+    <div class="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden mb-10"
+         x-data="trackingLogic('{{ order.order_status }}', '{{ order.order_number }}')" 
+         x-init="init()">
+         
         <!-- Top Banner Area -->
         <div class="bg-slate-900 px-8 py-6 text-white flex flex-col md:flex-row justify-between items-center gap-4">
             <div class="flex items-center gap-4">
@@ -21,217 +24,214 @@
                 </div>
             </div>
             <div class="text-right">
-                <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">Order Reference</p>
-                <p class="text-xl font-mono font-bold text-white tracking-wide">#{{ order.order_number }}</p>
+                <p class="text-xs text-slate-400 uppercase tracking-widest font-bold mb-1">Order Number</p>
+                <p class="text-xl font-mono font-bold">{{ order.order_number }}</p>
             </div>
         </div>
 
-        <!-- Action Bar -->
-        <div class="bg-gray-50 border-b border-gray-100 px-8 py-3 flex justify-between items-center">
-            <a href="{{ url_for('user.dashboard') }}" class="text-sm font-medium text-slate-600 hover:text-slate-900 flex items-center gap-2 transition-colors print:hidden">
-                <i class="fas fa-arrow-left"></i> Return to Store
-            </a>
-        </div>
+        <!-- Progress Tracker -->
+        <div class="px-8 py-10 relative bg-slate-50/50">
+            <div class="relative max-w-3xl mx-auto">
+                <div class="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-gray-200 z-0"></div>
+                <div class="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-blue-500 z-0 transition-all duration-1000" :style="'width: ' + progressWidth + '%'"></div>
 
-        <!-- Status Timeline -->
-        <div class="p-8">
-            <div class="relative px-4">
-                <div class="absolute top-1/2 left-0 w-full h-1 bg-gray-100 -z-10 -translate-y-1/2 rounded-full"></div>
-                <!-- Progress Bar Background -->
-                <div class="absolute top-1/2 left-0 h-1 bg-green-500 -z-0 -translate-y-1/2 rounded-full shadow-[0_0_10px_rgba(34,197,94,0.5)]" style="width: 25%;"></div>
-                
-                <div class="flex justify-between text-sm">
-                    <!-- Step 1 (Active) -->
-                    <div class="flex flex-col items-center gap-3 relative z-10">
-                        <div class="w-10 h-10 rounded-full bg-green-500 text-white flex items-center justify-center shadow-md shadow-green-200 ring-4 ring-white">
-                            <i class="fas fa-clipboard-check"></i>
+                <div class="relative z-10 flex justify-between">
+                    <!-- Step 1 -->
+                    <div class="flex flex-col items-center group w-16">
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500" :class="step >= 1 ? 'bg-blue-600 text-white shadow-md ring-4 ring-blue-50' : 'bg-white border-2 border-gray-200 text-gray-400'">
+                            <i class="fas fa-clipboard-check text-sm"></i>
                         </div>
-                        <span class="font-bold text-slate-800">Confirmed</span>
+                        <span class="mt-2 text-[10px] font-bold uppercase tracking-widest text-center" :class="step >= 1 ? 'text-gray-900' : 'text-gray-400'">Confirmed</span>
                     </div>
+
                     <!-- Step 2 -->
-                    <div class="flex flex-col items-center gap-3 relative z-10">
-                        <div class="w-10 h-10 rounded-full bg-white border-2 border-gray-200 text-gray-300 flex items-center justify-center ring-4 ring-white">
-                            <i class="fas fa-box-open"></i>
+                    <div class="flex flex-col items-center group w-16">
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500" :class="step >= 2 ? 'bg-blue-600 text-white shadow-md ring-4 ring-blue-50' : 'bg-white border-2 border-gray-200 text-gray-400'">
+                            <i class="fas fa-box-open text-sm"></i>
                         </div>
-                        <span class="font-medium text-gray-400">Processing</span>
+                        <span class="mt-2 text-[10px] font-bold uppercase tracking-widest text-center" :class="step >= 2 ? 'text-gray-900' : 'text-gray-400'">Processing</span>
                     </div>
+
                     <!-- Step 3 -->
-                    <div class="flex flex-col items-center gap-3 relative z-10">
-                        <div class="w-10 h-10 rounded-full bg-white border-2 border-gray-200 text-gray-300 flex items-center justify-center ring-4 ring-white">
-                            <i class="fas fa-shipping-fast"></i>
+                    <div class="flex flex-col items-center group w-16">
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500" :class="step >= 3 ? 'bg-blue-600 text-white shadow-md ring-4 ring-blue-50' : 'bg-white border-2 border-gray-200 text-gray-400'">
+                            <i class="fas fa-truck-fast text-sm"></i>
                         </div>
-                        <span class="font-medium text-gray-400">Shipped</span>
+                        <span class="mt-2 text-[10px] font-bold uppercase tracking-widest text-center" :class="step >= 3 ? 'text-gray-900' : 'text-gray-400'">Shipped</span>
                     </div>
+
                     <!-- Step 4 -->
-                    <div class="flex flex-col items-center gap-3 relative z-10">
-                        <div class="w-10 h-10 rounded-full bg-white border-2 border-gray-200 text-gray-300 flex items-center justify-center ring-4 ring-white">
-                            <i class="fas fa-home"></i>
+                    <div class="flex flex-col items-center group w-16">
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center transition-all duration-500" :class="step >= 4 ? 'bg-green-500 text-white shadow-md ring-4 ring-green-50' : 'bg-white border-2 border-gray-200 text-gray-400'">
+                            <i class="fas fa-house-user text-sm"></i>
                         </div>
-                        <span class="font-medium text-gray-400">Delivered</span>
+                        <span class="mt-2 text-[10px] font-bold uppercase tracking-widest text-center" :class="step >= 4 ? 'text-gray-900' : 'text-gray-400'">Delivered</span>
                     </div>
                 </div>
+            </div>
+            
+            <div class="mt-8 text-center" x-show="['cancelled', 'rejected'].includes(dbStatus)" x-cloak>
+                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-red-700 bg-red-50 border border-red-200">
+                    <i class="fas fa-times-circle"></i> This order was cancelled
+                </span>
             </div>
         </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        <!-- Left Column: Items -->
+        <!-- Main Order Details -->
         <div class="lg:col-span-2 space-y-6">
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-                    <h2 class="font-bold text-gray-800">Order Items</h2>
-                </div>
-                <div class="divide-y divide-gray-100 max-h-96 overflow-y-auto custom-scrollbar">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 class="text-sm font-bold text-gray-900 uppercase tracking-widest mb-4 pb-2 border-b border-gray-100">Items Ordered</h3>
+                
+                <div class="space-y-4">
                     {% for item in items %}
-                    <div class="p-6 flex gap-4 items-start">
-                        <!-- Product Image -->
-                        <div class="w-20 h-20 bg-gray-100 rounded-lg flex-shrink-0 overflow-hidden border border-gray-200">
-                             <img src="{{ item.image_url if item.image_url else 'https://via.placeholder.com/150?text=No+Img' }}" 
-                                  alt="{{ item.product_name }}" 
-                                  class="w-full h-full object-cover">
+                    <div class="flex items-center gap-4 group">
+                        <div class="w-16 h-16 bg-gray-50 rounded-lg border border-gray-200 overflow-hidden flex-shrink-0">
+                            {% if item.image_url %}
+                                <img src="{{ item.image_url }}" class="w-full h-full object-cover">
+                            {% else %}
+                                <div class="w-full h-full flex items-center justify-center text-gray-300"><i class="fas fa-image"></i></div>
+                            {% endif %}
                         </div>
-                        
-                        <!-- Details -->
-                        <div class="flex-grow">
-                            <h3 class="font-bold text-gray-900 text-lg">{{ item.product_name }}</h3>
-                            <p class="text-sm text-gray-500 mb-1">{{ item.category or 'General' }}</p>
-                            <div class="flex items-center text-sm text-gray-600 mt-2">
-                                <span class="bg-gray-100 px-2 py-0.5 rounded text-xs font-mono mr-2">x{{ item.quantity }}</span>
-                                <span>@ ₹{{ "{:,.2f}".format(item.price) }}</span>
-                            </div>
+                        <div class="flex-1 min-w-0">
+                            <h4 class="text-sm font-bold text-gray-900 truncate">{{ item.product_name }}</h4>
+                            <p class="text-xs text-gray-500 mt-0.5">
+                                Qty: {{ item.quantity }}
+                                {% if item.variant_name %}
+                                <span class="mx-1">•</span> {{ item.variant_name }}
+                                {% endif %}
+                            </p>
                         </div>
-                        
-                        <!-- Price -->
                         <div class="text-right">
-                            <p class="font-bold text-gray-900">₹{{ "{:,.2f}".format(item.price * item.quantity) }}</p>
+                            <p class="text-sm font-bold text-gray-900">${{ "%.2f"|format(item.price * item.quantity) }}</p>
                         </div>
                     </div>
                     {% endfor %}
                 </div>
             </div>
 
-            <!-- Help Section -->
-            <div class="bg-blue-50 rounded-xl border border-blue-100 p-6 flex items-start gap-4 print:hidden">
-                <div class="text-blue-500 text-xl mt-1">
-                    <i class="fas fa-headset"></i>
+            <!-- Addresses Section -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <i class="fas fa-truck text-blue-500"></i> Shipping Address
+                    </h3>
+                    <p class="text-sm font-medium text-gray-800 whitespace-pre-line leading-relaxed">
+                        {{ order.shipping_address }}
+                    </p>
                 </div>
-                <div>
-                    <h3 class="font-bold text-blue-900">Need help with your order?</h3>
-                    <p class="text-sm text-blue-700 mt-1">If you have any questions or need to make changes, please contact our support team immediately.</p>
-                    <div class="mt-3 flex gap-4 text-sm font-medium">
-                        <a href="#" class="text-blue-600 hover:text-blue-800">support@saratella.com</a>
-                        <span class="text-blue-300">|</span>
-                        <a href="#" class="text-blue-600 hover:text-blue-800">1-800-SARATELLA</a>
-                    </div>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <i class="fas fa-file-invoice text-purple-500"></i> Billing Address
+                    </h3>
+                    <p class="text-sm font-medium text-gray-800 whitespace-pre-line leading-relaxed">
+                        {{ order.billing_address if order.billing_address else order.shipping_address }}
+                    </p>
                 </div>
             </div>
         </div>
 
-        <!-- Right Column: Summary -->
-        <div class="lg:col-span-1 space-y-6">
-            
-            <!-- Financial Summary -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-                    <h2 class="font-bold text-gray-800">Order Summary</h2>
-                </div>
-                <div class="p-6 space-y-3 text-sm">
-                    <div class="flex justify-between text-gray-600">
+        <!-- Sidebar Summary -->
+        <div class="lg:col-span-1">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 sticky top-24">
+                <h3 class="text-sm font-bold text-gray-900 uppercase tracking-widest mb-4 pb-2 border-b border-gray-100">Payment Summary</h3>
+                
+                <div class="space-y-3 pt-4 border-t border-gray-100">
+                    <!-- 
+                         Since the database stores final total_amount (which now includes the $10 shipping),
+                         we reverse-calculate subtotal and tax by subtracting the shipping first and
+                         dividing by the dynamic tax multiplier.
+                    -->
+                    {% set tax_multiplier = 1 + ((tax_rate_display | default(0.00)) / 100) %}
+                    {% set item_total = (order.total_amount | float) - 10 %}
+                    {% set calc_subtotal = item_total / tax_multiplier %}
+                    {% set calc_tax = item_total - calc_subtotal %}
+
+                    <div class="flex justify-between text-sm text-gray-600">
                         <span>Subtotal</span>
-                        <!-- FIX: Converted order.total_amount to float before division -->
-                        <span>₹{{ "{:,.2f}".format((order.total_amount | float) / 1.05) }}</span>
+                        <span>${{ "%.2f"|format(calc_subtotal) }}</span>
                     </div>
-                    <div class="flex justify-between text-gray-600">
-                        <span>Tax (5%)</span>
-                        <!-- FIX: Converted order.total_amount to float before math -->
-                        <span>₹{{ "{:,.2f}".format((order.total_amount | float) - ((order.total_amount | float) / 1.05)) }}</span>
+                    <div class="flex justify-between text-sm text-gray-600">
+                        <span>Tax ({{ tax_rate_display }}%)</span>
+                        <span>${{ "%.2f"|format(calc_tax) }}</span>
                     </div>
-                    <div class="flex justify-between text-gray-600 pb-3 border-b border-gray-100">
+                    <div class="flex justify-between text-sm text-gray-600">
                         <span>Shipping</span>
-                        <span class="text-green-600 font-medium">Free</span>
+                        <span class="text-gray-900 font-bold">$10.00</span>
                     </div>
-                    <div class="flex justify-between items-center pt-1">
-                        <span class="font-bold text-gray-900 text-base">Total</span>
-                        <span class="font-bold text-blue-600 text-xl">₹{{ "{:,.2f}".format(order.total_amount | float) }}</span>
-                    </div>
+                </div>
+
+                <div class="flex justify-between text-sm font-bold text-gray-900 mt-2 pt-2 border-t border-gray-200">
+                    <span>Total Paid</span>
+                    <span class="text-xl">${{ "%.2f"|format(order.total_amount|float) }}</span>
+                </div>
+
+                <div class="mt-6 flex flex-col gap-3">
+                    <a href="{{ url_for('user.dashboard') }}" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-lg text-center text-sm shadow-md transition">
+                        Continue Shopping
+                    </a>
+                    {% if session.get('user_id') %}
+                    <a href="{{ url_for('user.my_orders') }}" class="w-full bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-bold py-3 rounded-lg text-center text-sm shadow-sm transition">
+                        View Order History
+                    </a>
+                    {% endif %}
                 </div>
             </div>
-
-            <!-- Customer Details -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-                    <h2 class="font-bold text-gray-800">Customer Details</h2>
-                </div>
-                <div class="p-6 space-y-6 text-sm">
-                    
-                    <!-- Contact -->
-                    <div>
-                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Contact Info</h4>
-                        <div class="flex items-center gap-2 text-gray-700">
-                            <i class="far fa-envelope text-gray-400 w-4"></i>
-                            <!-- Updated: Logic to show email -->
-                            <span class="truncate">{{ order.guest_email if order.guest_email else (session.get('email') if session.get('email') else 'Email not provided') }}</span>
-                        </div>
-                    </div>
-
-                    <!-- Shipping -->
-                    <div>
-                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Shipping Address</h4>
-                        <div class="flex items-start gap-2 text-gray-700">
-                            <i class="fas fa-map-marker-alt text-gray-400 w-4 mt-1"></i>
-                            <p class="leading-relaxed">{{ order.shipping_address }}</p>
-                        </div>
-                    </div>
-                    
-                    <!-- Billing -->
-                    <div>
-                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Billing Address</h4>
-                        <div class="flex items-start gap-2 text-gray-700">
-                            <i class="fas fa-file-invoice-dollar text-gray-400 w-4 mt-1"></i>
-                            <p class="leading-relaxed">{{ order.billing_address }}</p>
-                        </div>
-                    </div>
-
-                    <!-- Payment -->
-                    <div>
-                        <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Payment Method</h4>
-                        <div class="flex items-center gap-2 text-gray-700">
-                            <i class="far fa-credit-card text-gray-400 w-4"></i>
-                            <span>Pay on Delivery</span>
-                        </div>
-                    </div>
-
-                </div>
-            </div>
-
         </div>
     </div>
 </div>
 
-<style>
-    @media print {
-        /* Hide layout elements during print */
-        nav, aside, .print\:hidden, footer {
-            display: none !important;
-        }
-        body, main {
-            background-color: white;
-            height: auto;
-            overflow: visible;
-        }
-        .max-w-5xl {
-            max-width: 100%;
-            margin: 0;
-        }
-        /* Simplify visual styles for ink saving */
-        .bg-gray-50, .bg-blue-50 {
-            background-color: transparent !important;
-            border: 1px solid #eee;
-        }
-        .shadow-sm {
-            box-shadow: none !important;
+<script>
+    // Embedded Alpine Tracking Logic (same functionality as track_order.html)
+    function trackingLogic(initialStatus, orderNumber) {
+        return {
+            dbStatus: initialStatus.toLowerCase(),
+            orderNum: orderNumber,
+            pollingInterval: null,
+            isPolling: false,
+
+            init() {
+                if (!['delivered', 'cancelled', 'rejected'].includes(this.dbStatus)) {
+                    this.isPolling = true;
+                    this.pollingInterval = setInterval(() => {
+                        this.pollStatus();
+                    }, 5000); 
+                }
+            },
+
+            pollStatus() {
+                fetch(`/api/orders/status/${this.orderNum}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status && data.status.toLowerCase() !== this.dbStatus) {
+                            this.dbStatus = data.status.toLowerCase();
+                            
+                            if (['delivered', 'cancelled', 'rejected'].includes(this.dbStatus)) {
+                                clearInterval(this.pollingInterval);
+                                this.isPolling = false;
+                            }
+                        }
+                    })
+                    .catch(err => console.error('Polling error:', err));
+            },
+
+            get step() {
+                if (['pending', 'pending_approval', 'confirmed'].includes(this.dbStatus)) return 1;
+                if (this.dbStatus === 'processing') return 2;
+                if (['shipped', 'partially_shipped'].includes(this.dbStatus)) return 3;
+                if (this.dbStatus === 'delivered') return 4;
+                return 0; // Cancelled
+            },
+
+            get progressWidth() {
+                if (this.step <= 1) return 0;
+                if (this.step === 2) return 33;
+                if (this.step === 3) return 66;
+                if (this.step === 4) return 100;
+                return 0;
+            }
         }
     }
-</style>
+</script>
 {% endblock %}

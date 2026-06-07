@@ -1,0 +1,347 @@
+<!-- File: global_orders.html -->
+<!-- Location: /app/templates/admin/ -->
+
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Global Orders - Saratella Admin{% endblock %}
+
+{% block admin_content %}
+<script>
+    window.dbOrders = {{ orders | default([]) | tojson | safe }};
+
+    function globalOrdersLogic() {
+        return {
+            orders: window.dbOrders.map(o => {
+                let nodes = [];
+                try { nodes = typeof o.node_statuses === 'string' ? JSON.parse(o.node_statuses) : (o.node_statuses || []); } catch(e){}
+                return { ...o, nodes: nodes, isExpanded: false };
+            }),
+            
+            searchQuery: '',
+            filterStatus: 'all',
+            currentPage: 1,
+            itemsPerPage: 15,
+            
+            // ==========================================
+            // STATUS OVERRIDE MODAL STATE
+            // ==========================================
+            isStatusModalOpen: false,
+            isUpdatingStatus: false,
+            statusForm: {
+                order_id: null,
+                order_number: '',
+                status: ''
+            },
+
+            init() {
+                this.$watch('searchQuery', () => this.currentPage = 1);
+                this.$watch('filterStatus', () => this.currentPage = 1);
+            },
+
+            get filteredOrders() {
+                let result = this.orders;
+                if (this.filterStatus === 'unrouted') {
+                    result = result.filter(o => parseInt(o.allocated_items) < parseInt(o.total_items) && o.order_status !== 'cancelled');
+                } else if (this.filterStatus !== 'all') {
+                    result = result.filter(o => o.order_status === this.filterStatus);
+                }
+
+                if (this.searchQuery) {
+                    const q = this.searchQuery.toLowerCase();
+                    result = result.filter(o => 
+                        (o.order_number && o.order_number.toLowerCase().includes(q)) || 
+                        (o.first_name && o.first_name.toLowerCase().includes(q)) ||
+                        (o.shipping_address && o.shipping_address.toLowerCase().includes(q))
+                    );
+                }
+                return result;
+            },
+            
+            get totalPages() { return Math.ceil(this.filteredOrders.length / this.itemsPerPage) || 1; },
+            get paginatedOrders() {
+                const start = (this.currentPage - 1) * this.itemsPerPage;
+                return this.filteredOrders.slice(start, start + this.itemsPerPage);
+            },
+            prevPage() { if (this.currentPage > 1) this.currentPage--; },
+            nextPage() { if (this.currentPage < this.totalPages) this.currentPage++; },
+            toggleExpand(order) { order.isExpanded = !order.isExpanded; },
+
+            formatNodeStatus(status) {
+                switch(status) {
+                    case 'allocated': return { text: 'Awaiting Warehouse', icon: 'fa-clock', color: 'text-amber-600 bg-amber-50 border-amber-200' };
+                    case 'released_to_floor': return { text: 'On Floor Queue', icon: 'fa-clipboard-list', color: 'text-blue-600 bg-blue-50 border-blue-200' };
+                    case 'picking': return { text: 'Being Picked', icon: 'fa-walking', color: 'text-purple-600 bg-purple-50 border-purple-200' };
+                    case 'packed': return { text: 'Packed', icon: 'fa-box', color: 'text-indigo-600 bg-indigo-50 border-indigo-200' };
+                    case 'shipped': return { text: 'Dispatched', icon: 'fa-shipping-fast', color: 'text-emerald-600 bg-emerald-50 border-emerald-200' };
+                    default: return { text: status || 'Pending', icon: 'fa-spinner', color: 'text-gray-600 bg-gray-50 border-gray-200' };
+                }
+            },
+
+            // ==========================================
+            // STATUS OVERRIDE ACTIONS
+            // ==========================================
+            openStatusModal(order) {
+                this.statusForm = {
+                    order_id: order.order_id,
+                    order_number: order.order_number,
+                    status: order.order_status
+                };
+                this.isStatusModalOpen = true;
+            },
+
+            async forceUpdateStatus() {
+                this.isUpdatingStatus = true;
+                try {
+                    const res = await fetch(`/admin/api/orders/${this.statusForm.order_id}/force-status`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: this.statusForm.status })
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || "Failed to update status");
+
+                    if(typeof showToast === 'function') showToast("Order status forcefully updated!", "success");
+                    setTimeout(() => window.location.reload(), 800);
+                } catch (err) {
+                    if(typeof showToast === 'function') showToast(err.message, "error");
+                    this.isUpdatingStatus = false;
+                }
+            }
+        }
+    }
+</script>
+
+<div class="max-w-7xl mx-auto pb-10" x-data="globalOrdersLogic()">
+    
+    <!-- Page Header -->
+    <div class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Global Order Tracker</h1>
+            <p class="mt-2 text-sm text-gray-500">Monitor incoming global orders and verify real-time fulfillment progress across all network nodes.</p>
+        </div>
+    </div>
+
+    <!-- Search & Filters -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6 p-4 flex flex-col md:flex-row gap-4">
+        <div class="relative w-full md:w-96">
+            <i class="fas fa-search absolute left-4 top-3 text-gray-400"></i>
+            <input type="text" x-model="searchQuery" placeholder="Search Order # or Location..." class="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none transition">
+        </div>
+        
+        <select x-model="filterStatus" class="px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="all">All Orders</option>
+            <option value="unrouted">Needs Routing (Pending)</option>
+            <option value="processing">Processing (Routed)</option>
+            <option value="partially_shipped">Partially Shipped</option>
+            <option value="shipped">Shipped</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+        </select>
+    </div>
+
+    <!-- Data Table & Pagination Wrapper -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+        <div class="overflow-x-auto w-full flex-1">
+            <table class="min-w-full text-sm text-left">
+                <thead class="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-sm border-b border-gray-200">
+                    <tr>
+                        <th class="px-4 py-4 w-10"></th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Order ID & Date</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Customer / Location</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Value</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-center">Status</th>
+                        <th class="px-6 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-wider text-right">Action</th>
+                    </tr>
+                </thead>
+                
+                <template x-for="o in paginatedOrders" :key="o.order_id">
+                    <tbody class="bg-white border-b border-gray-100 last:border-b-0 hover:bg-blue-50/20 transition-colors group">
+                        
+                        <!-- MAIN ROW -->
+                        <tr>
+                            <td class="px-4 py-4 text-center">
+                                <button @click="toggleExpand(o)" class="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition">
+                                    <i class="fas transition-transform duration-200" :class="o.isExpanded ? 'fa-chevron-down text-blue-600' : 'fa-chevron-right'"></i>
+                                </button>
+                            </td>
+
+                            <td class="px-6 py-4 whitespace-nowrap cursor-pointer" @click="toggleExpand(o)">
+                                <p class="font-mono text-sm font-bold text-blue-600" x-text="o.order_number"></p>
+                                <p class="text-[10px] text-gray-500 uppercase tracking-widest mt-1" x-text="o.formatted_date"></p>
+                            </td>
+                            
+                            <td class="px-6 py-4 cursor-pointer" @click="toggleExpand(o)">
+                                <p class="font-bold text-gray-900" x-text="(o.first_name || 'Guest') + ' ' + (o.last_name || '')"></p>
+                                <p class="text-[10px] text-gray-500 mt-1 truncate max-w-xs" x-text="o.shipping_address"></p>
+                            </td>
+
+                            <td class="px-6 py-4 text-center whitespace-nowrap">
+                                <span class="font-bold text-gray-900" x-text="'$' + parseFloat(o.total_amount).toFixed(2)"></span>
+                            </td>
+
+                            <td class="px-6 py-4 text-center whitespace-nowrap">
+                                <template x-if="parseInt(o.allocated_items) < parseInt(o.total_items) && o.order_status === 'pending'">
+                                    <span class="inline-flex items-center px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wide bg-yellow-50 text-yellow-700 border border-yellow-200">
+                                        <i class="fas fa-exclamation-circle mr-1.5"></i> Needs Routing
+                                    </span>
+                                </template>
+                                <template x-if="parseInt(o.allocated_items) >= parseInt(o.total_items) || o.order_status !== 'pending'">
+                                    <span class="inline-flex items-center px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                        <i class="fas fa-check-circle mr-1.5"></i> <span x-text="o.order_status.replace('_', ' ')"></span>
+                                    </span>
+                                </template>
+                            </td>
+                            
+                            <td class="px-6 py-4 text-right whitespace-nowrap flex items-center justify-end gap-3 h-full">
+                                <!-- Standard Routing Action -->
+                                <template x-if="parseInt(o.allocated_items) < parseInt(o.total_items) && o.order_status === 'pending'">
+                                    <a :href="'/admin/orders/routing/' + o.order_id" class="inline-flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-lg transition shadow-sm">
+                                        Route Order <i class="fas fa-arrow-right ml-2 text-[10px]"></i>
+                                    </a>
+                                </template>
+                                <template x-if="parseInt(o.allocated_items) >= parseInt(o.total_items) || o.order_status !== 'pending'">
+                                    <button @click="toggleExpand(o)" class="text-blue-600 hover:text-blue-800 text-xs font-bold px-3 py-2">
+                                        View Progress
+                                    </button>
+                                </template>
+                                
+                                <!-- NEW: Force Override Action -->
+                                <button @click.stop="openStatusModal(o)" title="Force Override Status" class="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-amber-600 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition">
+                                    <i class="fas fa-sliders-h"></i>
+                                </button>
+                            </td>
+                        </tr>
+
+                        <!-- EXPANDED DETAILS ROW -->
+                        <tr x-show="o.isExpanded" x-cloak>
+                            <td colspan="6" class="p-0 border-t border-gray-100 bg-slate-50/50 shadow-inner">
+                                <div x-show="o.isExpanded" x-collapse>
+                                    <div class="px-14 py-6">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider"><i class="fas fa-network-wired text-blue-500 mr-2"></i> Network Fulfillment Breakdown</h4>
+                                            <span class="text-[10px] font-bold text-gray-500 bg-gray-200 px-2 py-1 rounded" x-text="o.allocated_items + ' of ' + o.total_items + ' items assigned'"></span>
+                                        </div>
+                                        
+                                        <template x-if="o.nodes.length === 0">
+                                            <div class="text-center py-6 bg-white rounded-lg border border-dashed border-gray-300 flex flex-col items-center justify-center">
+                                                <p class="text-sm font-bold text-gray-500"><i class="fas fa-inbox text-gray-400 mr-2"></i> Unassigned</p>
+                                                <p class="text-xs text-gray-400 mt-1 max-w-sm">This order has not been routed to any warehouses yet. Use the "Override" <i class="fas fa-sliders-h mx-1"></i> button above if this is a legacy order.</p>
+                                            </div>
+                                        </template>
+
+                                        <template x-if="o.nodes.length > 0">
+                                            <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                                                <template x-for="(node, nIdx) in o.nodes" :key="nIdx">
+                                                    <div class="bg-white rounded-lg border border-gray-200 p-4 shadow-sm flex items-center justify-between">
+                                                        <div class="flex items-start gap-3">
+                                                            <div class="w-8 h-8 rounded bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200 text-gray-500">
+                                                                <i class="fas fa-warehouse text-xs"></i>
+                                                            </div>
+                                                            <div>
+                                                                <p class="text-sm font-bold text-gray-900" x-text="node.store_name"></p>
+                                                                <p class="text-[10px] font-mono text-gray-500 mt-0.5" x-text="'Node: ' + node.store_code"></p>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div class="text-right">
+                                                            <p class="text-xs font-black text-gray-800 mb-1" x-text="node.allocated_qty + ' Units'"></p>
+                                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border"
+                                                                  :class="formatNodeStatus(node.status).color">
+                                                                <i class="fas mr-1" :class="formatNodeStatus(node.status).icon"></i>
+                                                                <span x-text="formatNodeStatus(node.status).text"></span>
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                        
+                    </tbody>
+                </template>
+                
+                <!-- Empty State -->
+                <tbody class="bg-white" x-show="filteredOrders.length === 0" x-cloak>
+                    <tr>
+                        <td colspan="6" class="px-6 py-12 text-center text-gray-500">
+                            <div class="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-300">
+                                <i class="fas fa-search text-2xl"></i>
+                            </div>
+                            <p class="font-bold text-gray-900 mb-1">No orders found.</p>
+                            <p class="text-sm">Try adjusting your search or filter status.</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="bg-gray-50 border-t border-gray-200 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4" x-show="filteredOrders.length > 0" x-cloak>
+            <div class="text-sm text-gray-500 font-medium">
+                Showing <span class="font-bold text-gray-900" x-text="((currentPage - 1) * itemsPerPage) + 1"></span> to 
+                <span class="font-bold text-gray-900" x-text="Math.min(currentPage * itemsPerPage, filteredOrders.length)"></span> of 
+                <span class="font-bold text-gray-900" x-text="filteredOrders.length"></span> results
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <button @click="prevPage()" :disabled="currentPage === 1" class="px-3 py-1.5 rounded bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm font-bold shadow-sm">
+                    <i class="fas fa-chevron-left text-[10px]"></i> Prev
+                </button>
+                <span class="px-4 py-1.5 rounded bg-white border border-gray-200 text-gray-900 font-bold text-sm shadow-sm" x-text="currentPage + ' / ' + totalPages"></span>
+                <button @click="nextPage()" :disabled="currentPage === totalPages" class="px-3 py-1.5 rounded bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition text-sm font-bold shadow-sm">
+                    Next <i class="fas fa-chevron-right text-[10px]"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- =========================================================================== -->
+    <!-- STATUS OVERRIDE MODAL                                                       -->
+    <!-- =========================================================================== -->
+    <div x-show="isStatusModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4" x-cloak>
+        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" @click="isStatusModalOpen = false"></div>
+        
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md relative z-10 overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center shrink-0">
+                <h3 class="text-lg font-bold text-gray-900">Override Order Status</h3>
+                <button @click="isStatusModalOpen = false" class="text-gray-400 hover:text-gray-700 transition"><i class="fas fa-times"></i></button>
+            </div>
+            
+            <div class="p-6 space-y-5">
+                <div class="bg-amber-50 border border-amber-200 p-4 rounded-xl flex gap-3 text-amber-800 text-sm">
+                    <i class="fas fa-exclamation-triangle mt-0.5"></i>
+                    <div>
+                        <p class="font-bold mb-1">Administrative Override</p>
+                        <p class="text-xs">You are manually overriding the global status for order <span class="font-mono font-bold" x-text="statusForm.order_number"></span>. Use this primarily for legacy orders created before the DOM system update.</p>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5">New Global Status <span class="text-red-500">*</span></label>
+                    <select x-model="statusForm.status" class="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-800 bg-white shadow-sm">
+                        <option value="pending">Pending (Unrouted)</option>
+                        <option value="processing">Processing (Routed to Floor)</option>
+                        <option value="partially_shipped">Partially Shipped</option>
+                        <option value="shipped">Shipped / Dispatched</option>
+                        <option value="delivered">Delivered</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-100 bg-gray-50 shrink-0 flex justify-end gap-3">
+                <button @click="isStatusModalOpen = false" class="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded-lg transition">Cancel</button>
+                <button @click="forceUpdateStatus()" :disabled="isUpdatingStatus" class="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded-lg text-sm font-bold shadow-md transition disabled:opacity-50 flex items-center gap-2">
+                    <span x-show="!isUpdatingStatus"><i class="fas fa-sliders-h mr-1"></i> Force Update</span>
+                    <span x-show="isUpdatingStatus"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,131 @@
+<!-- File: global_exceptions.html -->
+<!-- Location: /app/templates/admin/ -->
+
+{% extends "admin/admin_base.html" %}
+
+{% block title %}Global Short Picks - Saratella Admin{% endblock %}
+
+{% block admin_content %}
+<script>
+    window.initialExceptions = {{ exceptions | default([]) | tojson | safe }};
+
+    function globalExceptionsLogic() {
+        return {
+            searchQuery: '',
+            exceptions: window.initialExceptions || [],
+            
+            get filteredExceptions() {
+                if (!this.searchQuery) return this.exceptions;
+                const q = this.searchQuery.toLowerCase();
+                return this.exceptions.filter(exc => 
+                    (exc.warehouse_name && exc.warehouse_name.toLowerCase().includes(q)) || 
+                    (exc.order_number && exc.order_number.toLowerCase().includes(q)) ||
+                    (exc.sku && exc.sku.toLowerCase().includes(q))
+                );
+            }
+        }
+    }
+</script>
+
+<div class="max-w-7xl mx-auto" x-data="globalExceptionsLogic()">
+    
+    <!-- Page Header -->
+    <div class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+            <nav class="flex mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                <a href="{{ url_for('admin.dashboard') }}" class="hover:text-blue-600 transition">Command Center</a>
+                <span class="mx-2">/</span>
+                <span class="text-gray-900">Network Exceptions</span>
+            </nav>
+            <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Global Short Picks</h1>
+            <p class="mt-2 text-sm text-gray-500">Monitor supply chain bottlenecks and unresolved inventory exceptions across all network nodes.</p>
+        </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+        
+        <!-- Toolbar -->
+        <div class="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4 bg-gray-50/50 shrink-0">
+            <div class="relative w-full sm:w-96">
+                <i class="fas fa-search absolute left-4 top-3 text-gray-400"></i>
+                <input type="text" x-model="searchQuery" placeholder="Search by warehouse, order #, or SKU..." 
+                       class="w-full pl-11 pr-4 py-2.5 bg-white border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none transition shadow-sm">
+            </div>
+            <div class="text-sm font-bold text-gray-500 bg-white px-3 py-1.5 rounded border border-gray-200 shadow-sm">
+                <span x-text="filteredExceptions.length"></span> Pending
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="overflow-x-auto flex-1">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="bg-white border-b border-gray-200 text-[10px] uppercase tracking-wider text-gray-500">
+                        <th class="px-6 py-4 font-bold">Node / Warehouse</th>
+                        <th class="px-6 py-4 font-bold">Order Details</th>
+                        <th class="px-6 py-4 font-bold">Missing Item</th>
+                        <th class="px-6 py-4 font-bold text-center">Qty Short</th>
+                        <th class="px-6 py-4 font-bold">Reported By</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    <template x-for="exc in filteredExceptions" :key="exc.exception_id">
+                        <tr class="hover:bg-red-50/30 transition">
+                            
+                            <!-- Warehouse -->
+                            <td class="px-6 py-4 align-top">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 border border-slate-200">
+                                        <i class="fas fa-warehouse text-xs"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm font-bold text-gray-900" x-text="exc.warehouse_name"></p>
+                                        <p class="text-[10px] text-gray-500 font-mono mt-0.5" x-text="exc.warehouse_code"></p>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <!-- Order -->
+                            <td class="px-6 py-4 align-top">
+                                <p class="text-sm font-bold text-blue-600 hover:underline cursor-pointer" x-text="exc.order_number"></p>
+                                <p class="text-[10px] text-gray-400 mt-1 uppercase tracking-widest" x-text="exc.formatted_date"></p>
+                            </td>
+
+                            <!-- Item Info -->
+                            <td class="px-6 py-4 align-top">
+                                <p class="text-sm font-bold text-gray-900 truncate max-w-[200px]" :title="exc.product_name" x-text="exc.product_name"></p>
+                                <div class="flex flex-wrap items-center gap-2 mt-1.5">
+                                    <span class="text-[10px] bg-gray-100 border border-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-mono" x-text="exc.sku"></span>
+                                    <span x-show="exc.variant_name" class="text-[10px] bg-blue-50 border border-blue-100 text-blue-700 px-1.5 py-0.5 rounded" x-text="exc.variant_name"></span>
+                                </div>
+                            </td>
+
+                            <!-- Quantity -->
+                            <td class="px-6 py-4 align-top text-center">
+                                <span class="inline-flex items-center justify-center w-8 h-8 rounded bg-red-100 text-red-700 font-black text-sm border border-red-200" x-text="exc.missing_quantity"></span>
+                            </td>
+
+                            <!-- Reporter -->
+                            <td class="px-6 py-4 align-top">
+                                <p class="text-xs font-bold text-gray-700" x-text="exc.reported_by_first + ' ' + (exc.reported_by_last || '')"></p>
+                                <p class="text-[10px] text-gray-500 mt-0.5"><i class="fas fa-user-tag mr-1"></i> Picker</p>
+                            </td>
+
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+            
+            <!-- Empty State -->
+            <div x-show="filteredExceptions.length === 0" class="flex flex-col items-center justify-center py-20 text-center" x-cloak>
+                <div class="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mb-4 text-green-500 border border-green-100">
+                    <i class="fas fa-check-double text-2xl"></i>
+                </div>
+                <h3 class="text-base font-bold text-gray-900 mb-1">Network Clear</h3>
+                <p class="text-sm text-gray-500">There are no pending short picks across the network.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
